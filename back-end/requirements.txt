@@ -1,2 +1,8 @@
 flask
 flask-cors
+pyspark
+scikit-learn
+pandas
+numpy
+scipy
+joblib
