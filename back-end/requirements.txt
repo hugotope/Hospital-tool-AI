@@ -1,5 +1,6 @@
 flask
 flask-cors
+werkzeug
 pyspark
 scikit-learn
 pandas

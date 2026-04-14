@@ -1,283 +1,152 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hospital Tool - AI</title>
-    <link rel="stylesheet" href="./css/style.css" />
-  </head>
-  <body>
-    <main class="app-wrapper">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedAI Hospital — Sistema de Gestion</title>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
 
-      <!-- ── LOGIN ─────────────────────────────────────────────────────── -->
-      <section id="login-screen" class="card">
-        <h1>Hospital Tool</h1>
-        <p class="subtitle">Acceso al panel administrativo</p>
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  LOGIN                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="login-page">
+  <div class="login-left">
+    <div class="login-brand">
+      <div class="login-logo">&#9877;</div>
+      <h1>MedAI Hospital</h1>
+      <p>Sistema Inteligente de Gestion Medica</p>
+    </div>
+    <ul class="login-features">
+      <li><span class="feat-icon">&#129302;</span> Diagnostico con Inteligencia Artificial</li>
+      <li><span class="feat-icon">&#128202;</span> Analisis predictivo de enfermedades</li>
+      <li><span class="feat-icon">&#128100;</span> Gestion de pacientes y usuarios</li>
+      <li><span class="feat-icon">&#128196;</span> Gestion de datasets medicos</li>
+    </ul>
+  </div>
 
-        <form id="login-form" autocomplete="off">
-          <label for="username">Usuario</label>
-          <input id="username" name="username" type="text" placeholder="admin" required />
-
-          <label for="password">Contrasena</label>
-          <input id="password" name="password" type="password" placeholder="1234" required />
-
-          <button type="submit">Entrar</button>
-          <p id="login-error" class="error-msg" aria-live="polite"></p>
-        </form>
-      </section>
-
-      <!-- ── DASHBOARD ──────────────────────────────────────────────────── -->
-      <section id="dashboard-screen" class="hidden dashboard-shell">
-
-        <!-- Header -->
-        <header class="dashboard-header">
-          <div class="header-title">
-            <h2>Hospital Tool</h2>
-            <p class="subtitle">Panel de IA Medica</p>
+  <div class="login-right">
+    <div class="login-card">
+      <div class="login-card-header">
+        <div class="login-card-icon">&#128274;</div>
+        <h2>Iniciar Sesion</h2>
+        <p>Acceso al panel de administracion</p>
+      </div>
+      <form id="login-form" autocomplete="off">
+        <div class="field-group">
+          <label for="login-username">Usuario</label>
+          <div class="input-wrap">
+            <span class="input-icon">&#128100;</span>
+            <input id="login-username" type="text" placeholder="admin" required autocomplete="username" />
           </div>
-          <button id="logout-btn" class="secondary-btn">Cerrar sesion</button>
-        </header>
+        </div>
+        <div class="field-group">
+          <label for="login-password">Contrasena</label>
+          <div class="input-wrap">
+            <span class="input-icon">&#128274;</span>
+            <input id="login-password" type="password" placeholder="••••••" required autocomplete="current-password" />
+          </div>
+        </div>
+        <button type="submit" class="btn-primary btn-full" id="login-btn">
+          Ingresar al Sistema
+        </button>
+        <p id="login-error" class="form-error" aria-live="polite"></p>
+      </form>
+      <p class="login-hint">Credenciales por defecto: <strong>admin / 1234</strong></p>
+    </div>
+  </div>
+</div>
 
-        <!-- Tab navigation -->
-        <nav class="tab-nav" role="tablist">
-          <button class="tab-btn active" data-tab="dataset" role="tab">Dataset</button>
-          <button class="tab-btn" data-tab="analyze" role="tab">Analisis IA</button>
-          <button class="tab-btn" data-tab="disease" role="tab">Prediccion Enfermedad</button>
-          <button class="tab-btn" data-tab="risk" role="tab">Clasificacion Riesgo</button>
-          <button class="tab-btn" data-tab="model" role="tab">Info Modelo</button>
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  ADMIN PANEL                                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="admin-panel" class="hidden">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">&#9877;</div>
+      <div class="brand-text">
+        <span class="brand-name">MedAI</span>
+        <span class="brand-sub">Hospital</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-group-label">Principal</div>
+      <a class="nav-item active" data-section="dashboard">
+        <span class="nav-icon">&#127968;</span>
+        <span>Dashboard</span>
+      </a>
+
+      <div class="nav-group-label">Herramientas IA</div>
+      <a class="nav-item" data-section="diagnosis">
+        <span class="nav-icon">&#129302;</span>
+        <span>Diagnostico IA</span>
+      </a>
+      <a class="nav-item" data-section="diseases">
+        <span class="nav-icon">&#129440;</span>
+        <span>Enfermedades</span>
+      </a>
+
+      <div class="nav-group-label">Gestion</div>
+      <a class="nav-item" data-section="datasets">
+        <span class="nav-icon">&#128196;</span>
+        <span>Datasets</span>
+      </a>
+      <a class="nav-item admin-only" data-section="users">
+        <span class="nav-icon">&#128101;</span>
+        <span>Usuarios</span>
+      </a>
+
+      <div class="nav-group-label">Sistema</div>
+      <a class="nav-item" data-section="model">
+        <span class="nav-icon">&#9881;</span>
+        <span>Modelo IA</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-user">
+      <div class="user-avatar" id="sidebar-avatar">A</div>
+      <div class="user-info">
+        <span class="user-name" id="sidebar-username">Admin</span>
+        <span class="user-role" id="sidebar-role">Administrador</span>
+      </div>
+      <button class="logout-btn" id="logout-btn" title="Cerrar sesion">&#8594;</button>
+    </div>
+  </aside>
+
+  <!-- ── Top bar ──────────────────────────────────────────────────────────── -->
+  <div id="main-area">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">&#9776;</button>
+        <nav class="breadcrumb" id="breadcrumb">
+          <span>Dashboard</span>
         </nav>
-
-        <!-- ── TAB: Dataset ───────────────────────────────────────────── -->
-        <div id="tab-dataset" class="tab-content active" role="tabpanel">
-          <div class="dataset-controls">
-            <button id="load-preview-btn">Cargar preview del dataset</button>
-            <span id="dataset-status" aria-live="polite">Listo para cargar.</span>
-          </div>
-          <div class="table-wrap">
-            <table id="dataset-table">
-              <thead></thead>
-              <tbody></tbody>
-            </table>
-          </div>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-status" id="model-status-badge">
+          <span class="status-dot dot-warning"></span>
+          <span id="model-status-text">Modelo: no cargado</span>
         </div>
+      </div>
+    </header>
 
-        <!-- ── TAB: Analisis IA completo ─────────────────────────────── -->
-        <div id="tab-analyze" class="tab-content hidden" role="tabpanel">
-          <div class="ai-section">
-            <h3 class="section-title">Analisis Completo del Paciente</h3>
-            <p class="section-desc">Ingresa los datos del paciente para obtener simultaneamente la prediccion de enfermedad y nivel de riesgo.</p>
-
-            <form id="analyze-form" class="ai-form" novalidate>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="an-age">Edad</label>
-                  <input id="an-age" type="number" min="0" max="120" placeholder="45" required />
-                </div>
-                <div class="form-group">
-                  <label for="an-gender">Genero</label>
-                  <select id="an-gender" required>
-                    <option value="">Seleccionar...</option>
-                    <option value="Male">Masculino</option>
-                    <option value="Female">Femenino</option>
-                    <option value="Other">Otro</option>
-                  </select>
-                </div>
-              </div>
-              <div class="form-group full-width">
-                <label for="an-symptoms">Sintomas <span class="hint">(separados por coma)</span></label>
-                <input id="an-symptoms" type="text" placeholder="chest pain, fatigue, shortness of breath" required />
-                <div class="symptom-chips" id="an-chips"></div>
-              </div>
-              <div class="form-actions">
-                <button type="submit" class="ai-btn" id="analyze-btn">
-                  <span class="btn-icon">&#9881;</span> Analizar Paciente
-                </button>
-                <span class="ai-status" id="analyze-status" aria-live="polite"></span>
-              </div>
-            </form>
-
-            <!-- Results -->
-            <div id="analyze-results" class="results-grid hidden">
-              <!-- Disease card -->
-              <div class="result-card">
-                <h4 class="result-card-title">Prediccion de Enfermedad</h4>
-                <div class="predicted-disease" id="an-disease-name">-</div>
-                <div class="confidence-bar-wrap">
-                  <div class="confidence-bar" id="an-disease-bar"></div>
-                </div>
-                <div class="confidence-label" id="an-disease-conf"></div>
-                <div id="an-top-diseases" class="top-list"></div>
-              </div>
-              <!-- Risk card -->
-              <div class="result-card">
-                <h4 class="result-card-title">Nivel de Riesgo</h4>
-                <div class="risk-badge-wrap">
-                  <span class="risk-badge" id="an-risk-badge">-</span>
-                </div>
-                <div class="confidence-bar-wrap">
-                  <div class="confidence-bar risk-bar" id="an-risk-bar"></div>
-                </div>
-                <div class="confidence-label" id="an-risk-conf"></div>
-                <div id="an-risk-probas" class="risk-bars"></div>
-                <div id="an-recommendations" class="recommendations"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── TAB: Prediccion enfermedad ─────────────────────────────── -->
-        <div id="tab-disease" class="tab-content hidden" role="tabpanel">
-          <div class="ai-section">
-            <h3 class="section-title">Prediccion de Enfermedad</h3>
-            <p class="section-desc">El modelo predice el diagnostico mas probable basandose en la edad, genero y sintomas del paciente.</p>
-
-            <form id="disease-form" class="ai-form" novalidate>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="d-age">Edad</label>
-                  <input id="d-age" type="number" min="0" max="120" placeholder="45" required />
-                </div>
-                <div class="form-group">
-                  <label for="d-gender">Genero</label>
-                  <select id="d-gender" required>
-                    <option value="">Seleccionar...</option>
-                    <option value="Male">Masculino</option>
-                    <option value="Female">Femenino</option>
-                    <option value="Other">Otro</option>
-                  </select>
-                </div>
-              </div>
-              <div class="form-group full-width">
-                <label for="d-symptoms">Sintomas <span class="hint">(separados por coma)</span></label>
-                <input id="d-symptoms" type="text" placeholder="headache, fatigue, dizziness" required />
-              </div>
-
-              <!-- Quick symptom selector -->
-              <div class="quick-symptoms">
-                <span class="quick-label">Sintomas rapidos:</span>
-                <button type="button" class="sym-chip" data-sym="chest pain">Dolor pecho</button>
-                <button type="button" class="sym-chip" data-sym="fatigue">Fatiga</button>
-                <button type="button" class="sym-chip" data-sym="shortness of breath">Dificultad respirar</button>
-                <button type="button" class="sym-chip" data-sym="headache">Dolor cabeza</button>
-                <button type="button" class="sym-chip" data-sym="fever">Fiebre</button>
-                <button type="button" class="sym-chip" data-sym="cough">Tos</button>
-                <button type="button" class="sym-chip" data-sym="dizziness">Mareo</button>
-                <button type="button" class="sym-chip" data-sym="frequent urination">Miccion frecuente</button>
-                <button type="button" class="sym-chip" data-sym="jaundice">Ictericia</button>
-                <button type="button" class="sym-chip" data-sym="abdominal pain">Dolor abdominal</button>
-                <button type="button" class="sym-chip" data-sym="nausea">Nauseas</button>
-                <button type="button" class="sym-chip" data-sym="weight loss">Perdida peso</button>
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="ai-btn" id="disease-btn">
-                  <span class="btn-icon">&#128300;</span> Predecir Enfermedad
-                </button>
-                <span class="ai-status" id="disease-status" aria-live="polite"></span>
-              </div>
-            </form>
-
-            <div id="disease-results" class="result-card hidden">
-              <h4 class="result-card-title">Resultado</h4>
-              <div class="predicted-disease" id="d-disease-name">-</div>
-              <div class="confidence-bar-wrap">
-                <div class="confidence-bar" id="d-disease-bar"></div>
-              </div>
-              <div class="confidence-label" id="d-disease-conf"></div>
-              <div id="d-top-diseases" class="top-list"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── TAB: Clasificacion riesgo ─────────────────────────────── -->
-        <div id="tab-risk" class="tab-content hidden" role="tabpanel">
-          <div class="ai-section">
-            <h3 class="section-title">Clasificacion de Riesgo del Paciente</h3>
-            <p class="section-desc">Clasifica al paciente en nivel de riesgo: <strong>Bajo</strong>, <strong>Medio</strong> o <strong>Alto</strong>, y ofrece recomendaciones clinicas.</p>
-
-            <form id="risk-form" class="ai-form" novalidate>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="r-age">Edad</label>
-                  <input id="r-age" type="number" min="0" max="120" placeholder="68" required />
-                </div>
-                <div class="form-group">
-                  <label for="r-gender">Genero</label>
-                  <select id="r-gender" required>
-                    <option value="">Seleccionar...</option>
-                    <option value="Male">Masculino</option>
-                    <option value="Female">Femenino</option>
-                    <option value="Other">Otro</option>
-                  </select>
-                </div>
-              </div>
-              <div class="form-group full-width">
-                <label for="r-symptoms">Sintomas <span class="hint">(separados por coma)</span></label>
-                <input id="r-symptoms" type="text" placeholder="chest pain, shortness of breath" required />
-              </div>
-
-              <div class="quick-symptoms">
-                <span class="quick-label">Sintomas rapidos:</span>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="chest pain">Dolor pecho</button>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="fatigue">Fatiga</button>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="shortness of breath">Dificultad respirar</button>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="headache">Dolor cabeza</button>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="fever">Fiebre</button>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="nausea">Nauseas</button>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="weight loss">Perdida peso</button>
-                <button type="button" class="sym-chip" data-target="r-symptoms" data-sym="frequent urination">Miccion frecuente</button>
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="ai-btn" id="risk-btn">
-                  <span class="btn-icon">&#9888;</span> Clasificar Riesgo
-                </button>
-                <span class="ai-status" id="risk-status" aria-live="polite"></span>
-              </div>
-            </form>
-
-            <div id="risk-results" class="result-card hidden">
-              <h4 class="result-card-title">Nivel de Riesgo</h4>
-              <div class="risk-badge-wrap">
-                <span class="risk-badge" id="r-risk-badge">-</span>
-              </div>
-              <div class="confidence-bar-wrap">
-                <div class="confidence-bar risk-bar" id="r-risk-bar"></div>
-              </div>
-              <div class="confidence-label" id="r-risk-conf"></div>
-              <div id="r-risk-probas" class="risk-bars"></div>
-              <div id="r-recommendations" class="recommendations"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── TAB: Info Modelo ────────────────────────────────────────── -->
-        <div id="tab-model" class="tab-content hidden" role="tabpanel">
-          <div class="ai-section">
-            <h3 class="section-title">Informacion del Modelo</h3>
-
-            <div class="model-actions">
-              <button id="refresh-info-btn" class="secondary-btn">Actualizar info</button>
-              <button id="train-btn" class="ai-btn train-btn">
-                <span class="btn-icon">&#9654;</span> Entrenar Modelos (PySpark)
-              </button>
-              <span class="ai-status" id="train-status" aria-live="polite"></span>
-            </div>
-
-            <div id="train-progress" class="train-progress hidden">
-              <div class="progress-bar-anim"></div>
-              <p>Entrenando con PySpark + Sklearn... esto puede tardar varios minutos.</p>
-            </div>
-
-            <div id="model-info-content" class="model-info-grid">
-              <p class="muted-text">Carga la informacion con el boton de arriba.</p>
-            </div>
-          </div>
-        </div>
-
-      </section>
+    <!-- ── Main content ───────────────────────────────────────────────────── -->
+    <main id="main-content">
+      <div class="content-loading hidden" id="content-loading">
+        <div class="spinner"></div>
+        <p>Cargando...</p>
+      </div>
     </main>
+  </div>
+</div>
 
-    <script src="./js/app.js"></script>
-  </body>
+<!-- ── Toast notifications ───────────────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<script src="./js/app.js"></script>
+</body>
 </html>
