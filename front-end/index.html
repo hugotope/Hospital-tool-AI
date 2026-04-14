@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hospital Tool - Login</title>
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <main class="app-wrapper">
+      <section id="login-screen" class="card">
+        <h1>Hospital Tool</h1>
+        <p class="subtitle">Acceso al panel administrativo</p>
+
+        <form id="login-form" autocomplete="off">
+          <label for="username">Usuario</label>
+          <input id="username" name="username" type="text" placeholder="admin" required />
+
+          <label for="password">Contrasena</label>
+          <input id="password" name="password" type="password" placeholder="1234" required />
+
+          <button type="submit">Entrar</button>
+          <p id="login-error" class="error-msg" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section id="dashboard-screen" class="hidden">
+        <header class="dashboard-header">
+          <div>
+            <h2>Panel Principal</h2>
+            <p class="subtitle">Preview del dataset hospitalario</p>
+          </div>
+          <button id="logout-btn" class="secondary-btn">Cerrar sesion</button>
+        </header>
+
+        <div class="dataset-controls">
+          <button id="load-preview-btn">Cargar preview del dataset</button>
+          <span id="dataset-status" aria-live="polite">Listo para cargar.</span>
+        </div>
+
+        <div class="table-wrap">
+          <table id="dataset-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="./js/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,167 @@
+:root {
+  --bg: #f4f7fb;
+  --card: #ffffff;
+  --primary: #1f4fa3;
+  --primary-dark: #193f82;
+  --text: #1d2433;
+  --muted: #5e6a7d;
+  --danger: #c62828;
+  --border: #d9e1ef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--text);
+  background: linear-gradient(180deg, #eef3fb 0%, #f8fafd 100%);
+}
+
+.app-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.card {
+  width: min(420px, 100%);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  box-shadow: 0 10px 24px rgba(13, 35, 76, 0.08);
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+.subtitle {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+  gap: 10px;
+}
+
+label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+input {
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--primary);
+}
+
+button {
+  margin-top: 12px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--primary-dark);
+}
+
+.secondary-btn {
+  width: 150px;
+  margin-top: 0;
+  background: #fff;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+}
+
+.secondary-btn:hover {
+  background: #ecf2ff;
+}
+
+.error-msg {
+  margin: 0;
+  font-size: 14px;
+  color: var(--danger);
+  min-height: 20px;
+}
+
+#dashboard-screen {
+  width: min(1100px, 100%);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 10px 24px rgba(13, 35, 76, 0.08);
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dataset-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+#dataset-status {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 65vh;
+}
+
+table {
+  border-collapse: collapse;
+  min-width: 900px;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: #f1f5fd;
+  z-index: 1;
+}
+
+.hidden {
+  display: none;
+}
