@@ -1,52 +1,152 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hospital Tool - Login</title>
-    <link rel="stylesheet" href="./css/style.css" />
-  </head>
-  <body>
-    <main class="app-wrapper">
-      <section id="login-screen" class="card">
-        <h1>Hospital Tool</h1>
-        <p class="subtitle">Acceso al panel administrativo</p>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedAI Hospital — Sistema de Gestion</title>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
 
-        <form id="login-form" autocomplete="off">
-          <label for="username">Usuario</label>
-          <input id="username" name="username" type="text" placeholder="admin" required />
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  LOGIN                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="login-page">
+  <div class="login-left">
+    <div class="login-brand">
+      <div class="login-logo">&#9877;</div>
+      <h1>MedAI Hospital</h1>
+      <p>Sistema Inteligente de Gestion Medica</p>
+    </div>
+    <ul class="login-features">
+      <li><span class="feat-icon">&#129302;</span> Diagnostico con Inteligencia Artificial</li>
+      <li><span class="feat-icon">&#128202;</span> Analisis predictivo de enfermedades</li>
+      <li><span class="feat-icon">&#128100;</span> Gestion de pacientes y usuarios</li>
+      <li><span class="feat-icon">&#128196;</span> Gestion de datasets medicos</li>
+    </ul>
+  </div>
 
-          <label for="password">Contrasena</label>
-          <input id="password" name="password" type="password" placeholder="1234" required />
-
-          <button type="submit">Entrar</button>
-          <p id="login-error" class="error-msg" aria-live="polite"></p>
-        </form>
-      </section>
-
-      <section id="dashboard-screen" class="hidden">
-        <header class="dashboard-header">
-          <div>
-            <h2>Panel Principal</h2>
-            <p class="subtitle">Preview del dataset hospitalario</p>
+  <div class="login-right">
+    <div class="login-card">
+      <div class="login-card-header">
+        <div class="login-card-icon">&#128274;</div>
+        <h2>Iniciar Sesion</h2>
+        <p>Acceso al panel de administracion</p>
+      </div>
+      <form id="login-form" autocomplete="off">
+        <div class="field-group">
+          <label for="login-username">Usuario</label>
+          <div class="input-wrap">
+            <span class="input-icon">&#128100;</span>
+            <input id="login-username" type="text" placeholder="admin" required autocomplete="username" />
           </div>
-          <button id="logout-btn" class="secondary-btn">Cerrar sesion</button>
-        </header>
-
-        <div class="dataset-controls">
-          <button id="load-preview-btn">Cargar preview del dataset</button>
-          <span id="dataset-status" aria-live="polite">Listo para cargar.</span>
         </div>
-
-        <div class="table-wrap">
-          <table id="dataset-table">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
+        <div class="field-group">
+          <label for="login-password">Contrasena</label>
+          <div class="input-wrap">
+            <span class="input-icon">&#128274;</span>
+            <input id="login-password" type="password" placeholder="••••••" required autocomplete="current-password" />
+          </div>
         </div>
-      </section>
+        <button type="submit" class="btn-primary btn-full" id="login-btn">
+          Ingresar al Sistema
+        </button>
+        <p id="login-error" class="form-error" aria-live="polite"></p>
+      </form>
+      <p class="login-hint">Credenciales por defecto: <strong>admin / 1234</strong></p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!--  ADMIN PANEL                                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="admin-panel" class="hidden">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">&#9877;</div>
+      <div class="brand-text">
+        <span class="brand-name">MedAI</span>
+        <span class="brand-sub">Hospital</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-group-label">Principal</div>
+      <a class="nav-item active" data-section="dashboard">
+        <span class="nav-icon">&#127968;</span>
+        <span>Dashboard</span>
+      </a>
+
+      <div class="nav-group-label">Herramientas IA</div>
+      <a class="nav-item" data-section="diagnosis">
+        <span class="nav-icon">&#129302;</span>
+        <span>Diagnostico IA</span>
+      </a>
+      <a class="nav-item" data-section="diseases">
+        <span class="nav-icon">&#129440;</span>
+        <span>Enfermedades</span>
+      </a>
+
+      <div class="nav-group-label">Gestion</div>
+      <a class="nav-item" data-section="datasets">
+        <span class="nav-icon">&#128196;</span>
+        <span>Datasets</span>
+      </a>
+      <a class="nav-item admin-only" data-section="users">
+        <span class="nav-icon">&#128101;</span>
+        <span>Usuarios</span>
+      </a>
+
+      <div class="nav-group-label">Sistema</div>
+      <a class="nav-item" data-section="model">
+        <span class="nav-icon">&#9881;</span>
+        <span>Modelo IA</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-user">
+      <div class="user-avatar" id="sidebar-avatar">A</div>
+      <div class="user-info">
+        <span class="user-name" id="sidebar-username">Admin</span>
+        <span class="user-role" id="sidebar-role">Administrador</span>
+      </div>
+      <button class="logout-btn" id="logout-btn" title="Cerrar sesion">&#8594;</button>
+    </div>
+  </aside>
+
+  <!-- ── Top bar ──────────────────────────────────────────────────────────── -->
+  <div id="main-area">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">&#9776;</button>
+        <nav class="breadcrumb" id="breadcrumb">
+          <span>Dashboard</span>
+        </nav>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-status" id="model-status-badge">
+          <span class="status-dot dot-warning"></span>
+          <span id="model-status-text">Modelo: no cargado</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── Main content ───────────────────────────────────────────────────── -->
+    <main id="main-content">
+      <div class="content-loading hidden" id="content-loading">
+        <div class="spinner"></div>
+        <p>Cargando...</p>
+      </div>
     </main>
+  </div>
+</div>
 
-    <script src="./js/app.js"></script>
-  </body>
+<!-- ── Toast notifications ───────────────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<script src="./js/app.js"></script>
+</body>
 </html>
