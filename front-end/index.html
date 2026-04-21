@@ -2,151 +2,262 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MedAI Hospital — Sistema de Gestion</title>
-  <link rel="stylesheet" href="./css/style.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>IHSS Clinical Portal &mdash; MedAI Hospital</title>
+
+  <!-- Google Fonts: Manrope (display), Inter (body), Public Sans (data) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Public+Sans:wght@400;500;600;700&display=swap"
+  />
+  <!-- Material Symbols (icon set used across the Stitch design) -->
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+  />
+
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════════════════ -->
-<!--  LOGIN                                                                  -->
-<!-- ═══════════════════════════════════════════════════════════════════════ -->
-<div id="login-page">
-  <div class="login-left">
-    <div class="login-brand">
-      <div class="login-logo">&#9877;</div>
-      <h1>MedAI Hospital</h1>
-      <p>Sistema Inteligente de Gestion Medica</p>
-    </div>
-    <ul class="login-features">
-      <li><span class="feat-icon">&#129302;</span> Diagnostico con Inteligencia Artificial</li>
-      <li><span class="feat-icon">&#128202;</span> Analisis predictivo de enfermedades</li>
-      <li><span class="feat-icon">&#128100;</span> Gestion de pacientes y usuarios</li>
-      <li><span class="feat-icon">&#128196;</span> Gestion de datasets medicos</li>
-    </ul>
-  </div>
-
-  <div class="login-right">
-    <div class="login-card">
-      <div class="login-card-header">
-        <div class="login-card-icon">&#128274;</div>
-        <h2>Iniciar Sesion</h2>
-        <p>Acceso al panel de administracion</p>
+  <!-- ═══════════════════════ LOGIN ═══════════════════════ -->
+  <div id="login-page">
+    <div class="login-shell">
+      <div class="login-lang-row">
+        <select id="login-lang" aria-label="Idioma">
+          <option value="es">Espanol</option>
+          <option value="en">English</option>
+          <option value="ca">Catala</option>
+        </select>
       </div>
+      <div class="login-logo">
+        <div class="login-logo-mark">M</div>
+        <div>
+          <div class="login-logo-text">IHSS Clinical Portal</div>
+          <div class="login-logo-sub" data-i18n="login.tagline">Plataforma clinica inteligente</div>
+        </div>
+      </div>
+      <h2 data-i18n="login.title">Iniciar sesion</h2>
+      <p class="sub" data-i18n="login.subtitle">Accede al panel del hospital con tus credenciales.</p>
       <form id="login-form" autocomplete="off">
-        <div class="field-group">
-          <label for="login-username">Usuario</label>
-          <div class="input-wrap">
-            <span class="input-icon">&#128100;</span>
-            <input id="login-username" type="text" placeholder="admin" required autocomplete="username" />
-          </div>
+        <div class="form-field">
+          <label for="login-username" data-i18n="login.username">Usuario</label>
+          <input id="login-username" type="text" required autocomplete="username" />
         </div>
-        <div class="field-group">
-          <label for="login-password">Contrasena</label>
-          <div class="input-wrap">
-            <span class="input-icon">&#128274;</span>
-            <input id="login-password" type="password" placeholder="••••••" required autocomplete="current-password" />
-          </div>
+        <div class="form-field">
+          <label for="login-password" data-i18n="login.password">Contrasena</label>
+          <input id="login-password" type="password" required autocomplete="current-password" />
         </div>
-        <button type="submit" class="btn-primary btn-full" id="login-btn">
-          Ingresar al Sistema
-        </button>
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="login-btn" data-i18n="login.submit">Entrar</button>
         <p id="login-error" class="form-error" aria-live="polite"></p>
       </form>
-      <p class="login-hint">Credenciales por defecto: <strong>admin / 1234</strong></p>
+      <p class="text-xs text-muted mt-16" style="text-align:center;">
+        <span data-i18n="login.demo">Demo</span>: <strong>admin / 1234</strong>
+      </p>
     </div>
   </div>
-</div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════ -->
-<!--  ADMIN PANEL                                                            -->
-<!-- ═══════════════════════════════════════════════════════════════════════ -->
-<div id="admin-panel" class="hidden">
+  <!-- ═══════════════════════ APP ═══════════════════════ -->
+  <div id="admin-panel" class="hidden">
 
-  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
-  <aside id="sidebar">
-    <div class="sidebar-brand">
-      <div class="brand-icon">&#9877;</div>
-      <div class="brand-text">
-        <span class="brand-name">MedAI</span>
-        <span class="brand-sub">Hospital</span>
-      </div>
-    </div>
-
-    <nav class="sidebar-nav">
-      <div class="nav-group-label">Principal</div>
-      <a class="nav-item active" data-section="dashboard">
-        <span class="nav-icon">&#127968;</span>
-        <span>Dashboard</span>
-      </a>
-
-      <div class="nav-group-label">Herramientas IA</div>
-      <a class="nav-item" data-section="diagnosis">
-        <span class="nav-icon">&#129302;</span>
-        <span>Diagnostico IA</span>
-      </a>
-      <a class="nav-item" data-section="diseases">
-        <span class="nav-icon">&#129440;</span>
-        <span>Enfermedades</span>
-      </a>
-
-      <div class="nav-group-label">Gestion</div>
-      <a class="nav-item" data-section="datasets">
-        <span class="nav-icon">&#128196;</span>
-        <span>Datasets</span>
-      </a>
-      <a class="nav-item admin-only" data-section="users">
-        <span class="nav-icon">&#128101;</span>
-        <span>Usuarios</span>
-      </a>
-
-      <div class="nav-group-label">Sistema</div>
-      <a class="nav-item" data-section="model">
-        <span class="nav-icon">&#9881;</span>
-        <span>Modelo IA</span>
-      </a>
-    </nav>
-
-    <div class="sidebar-user">
-      <div class="user-avatar" id="sidebar-avatar">A</div>
-      <div class="user-info">
-        <span class="user-name" id="sidebar-username">Admin</span>
-        <span class="user-role" id="sidebar-role">Administrador</span>
-      </div>
-      <button class="logout-btn" id="logout-btn" title="Cerrar sesion">&#8594;</button>
-    </div>
-  </aside>
-
-  <!-- ── Top bar ──────────────────────────────────────────────────────────── -->
-  <div id="main-area">
-    <header class="topbar">
-      <div class="topbar-left">
-        <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">&#9776;</button>
-        <nav class="breadcrumb" id="breadcrumb">
-          <span>Dashboard</span>
-        </nav>
-      </div>
-      <div class="topbar-right">
-        <div class="topbar-status" id="model-status-badge">
-          <span class="status-dot dot-warning"></span>
-          <span id="model-status-text">Modelo: no cargado</span>
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">M</div>
+        <div class="brand-text">
+          <div class="brand-name">IHSS Portal</div>
+          <div class="brand-sub">MedAI v2.0</div>
         </div>
       </div>
-    </header>
 
-    <!-- ── Main content ───────────────────────────────────────────────────── -->
-    <main id="main-content">
-      <div class="content-loading hidden" id="content-loading">
-        <div class="spinner"></div>
-        <p>Cargando...</p>
-      </div>
+      <!-- Emergency Alert CTA (Stitch) -->
+      <button class="sidebar-emergency" id="emergency-btn" type="button" title="Emergency Alert">
+        <span class="nav-icon">warning</span>
+        <span data-i18n="sidebar.emergency">Emergency Alert</span>
+      </button>
+
+      <nav class="sidebar-nav" id="sidebar-nav">
+        <div class="nav-group-label" data-i18n="nav.group.main">Principal</div>
+        <a class="nav-item active" data-section="dashboard">
+          <span class="nav-icon">dashboard</span><span data-i18n="nav.dashboard">Dashboard</span>
+        </a>
+        <a class="nav-item" data-section="diagnosis">
+          <span class="nav-icon">clinical_notes</span><span data-i18n="nav.diagnosis">Diagnostico IA</span>
+        </a>
+        <a class="nav-item" data-section="patients">
+          <span class="nav-icon">person_search</span><span data-i18n="nav.patients">Pacientes</span>
+        </a>
+        <a class="nav-item" data-section="diseases">
+          <span class="nav-icon">coronavirus</span><span data-i18n="nav.diseases">Enfermedades</span>
+        </a>
+
+        <div class="nav-group-label" data-i18n="nav.group.analytics">Analitica</div>
+        <a class="nav-item" data-section="analytics">
+          <span class="nav-icon">monitoring</span><span data-i18n="nav.analytics">Analisis</span>
+        </a>
+        <a class="nav-item" data-section="anomalies">
+          <span class="nav-icon">release_alert</span><span data-i18n="nav.anomalies">Anomalias</span>
+        </a>
+
+        <div class="nav-group-label" data-i18n="nav.group.admin">Administracion</div>
+        <a class="nav-item" data-section="dataset">
+          <span class="nav-icon">settings_input_component</span><span data-i18n="nav.dataset">Dataset</span>
+        </a>
+        <a class="nav-item" data-section="model">
+          <span class="nav-icon">smart_toy</span><span data-i18n="nav.model">Modelo</span>
+        </a>
+        <a class="nav-item admin-only" data-section="users">
+          <span class="nav-icon">group</span><span data-i18n="nav.users">Usuarios</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main -->
+    <main id="main-area">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="sidebar-toggle" id="sidebar-toggle" title="Menu">
+            <span class="material-symbols-outlined">menu</span>
+          </button>
+          <div class="topbar-brand">IHSS Clinical Portal</div>
+          <div class="breadcrumb" id="page-title">Dashboard</div>
+        </div>
+        <div class="topbar-right">
+          <div class="topbar-status" id="api-status">
+            <span class="status-dot dot-warning"></span>
+            <span id="api-status-text">&hellip;</span>
+          </div>
+
+          <button class="topbar-icon-btn" title="Notifications">
+            <span class="material-symbols-outlined">notifications_active</span>
+            <span class="notif-dot"></span>
+          </button>
+
+          <!-- Settings dropdown -->
+          <div class="tb-menu" id="settings-menu">
+            <button class="topbar-icon-btn" id="settings-btn" title="Ajustes" aria-haspopup="true" aria-expanded="false">
+              <span class="material-symbols-outlined">settings</span>
+            </button>
+            <div class="tb-menu-panel" id="settings-panel" role="menu" hidden>
+              <div class="tb-menu-header">
+                <span class="material-symbols-outlined">tune</span>
+                <div>
+                  <div class="tb-menu-title" data-i18n="settings.title">Configuracion</div>
+                  <div class="tb-menu-sub" data-i18n="settings.sub">Preferencias del portal</div>
+                </div>
+              </div>
+
+              <div class="tb-menu-section">
+                <div class="tb-menu-label" data-i18n="settings.language">Idioma</div>
+                <select class="lang-select" id="lang-select" aria-label="Idioma">
+                  <option value="es">Espanol</option>
+                  <option value="en">English</option>
+                  <option value="ca">Catala</option>
+                </select>
+              </div>
+
+              <div class="tb-menu-section">
+                <div class="tb-menu-label" data-i18n="settings.appearance">Apariencia</div>
+                <div class="tb-toggle-row">
+                  <label class="tb-switch">
+                    <input type="checkbox" id="opt-compact" />
+                    <span class="tb-switch-track"></span>
+                  </label>
+                  <div>
+                    <div class="tb-toggle-title" data-i18n="settings.compact">Modo compacto</div>
+                    <div class="tb-toggle-sub" data-i18n="settings.compact.sub">Reduce paddings de las tablas.</div>
+                  </div>
+                </div>
+                <div class="tb-toggle-row">
+                  <label class="tb-switch">
+                    <input type="checkbox" id="opt-sidebar-collapse" />
+                    <span class="tb-switch-track"></span>
+                  </label>
+                  <div>
+                    <div class="tb-toggle-title" data-i18n="settings.collapse">Sidebar plegada</div>
+                    <div class="tb-toggle-sub" data-i18n="settings.collapse.sub">Colapsa la barra lateral por defecto.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tb-menu-divider"></div>
+
+              <div class="tb-menu-section">
+                <div class="tb-menu-label" data-i18n="settings.system">Sistema</div>
+                <button class="tb-menu-item" id="settings-report">
+                  <span class="material-symbols-outlined">description</span>
+                  <div class="tb-menu-item-body">
+                    <div class="tb-menu-item-title" data-i18n="nav.report">Informe</div>
+                    <div class="tb-menu-item-sub" data-i18n="report.sub">Documento tecnico del sistema.</div>
+                  </div>
+                  <span class="material-symbols-outlined tb-menu-chev">chevron_right</span>
+                </button>
+                <button class="tb-menu-item" id="settings-refresh">
+                  <span class="material-symbols-outlined">refresh</span>
+                  <div class="tb-menu-item-body">
+                    <div class="tb-menu-item-title" data-i18n="settings.refresh">Recargar datos</div>
+                    <div class="tb-menu-item-sub" data-i18n="settings.refresh.sub">Recarga la vista actual.</div>
+                  </div>
+                  <span class="material-symbols-outlined tb-menu-chev">chevron_right</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Account dropdown -->
+          <div class="tb-menu" id="account-menu">
+            <button class="topbar-icon-btn topbar-avatar-btn" id="account-btn" title="Cuenta" aria-haspopup="true" aria-expanded="false">
+              <span class="user-avatar" id="user-avatar">A</span>
+            </button>
+            <div class="tb-menu-panel tb-menu-panel-sm" id="account-panel" role="menu" hidden>
+              <div class="tb-account-card">
+                <span class="user-avatar user-avatar-lg" id="user-avatar-lg">A</span>
+                <div class="tb-account-info">
+                  <div class="tb-account-name" id="user-name">Admin</div>
+                  <div class="tb-account-email" id="user-email">&mdash;</div>
+                  <span class="badge badge-info" id="user-role">admin</span>
+                </div>
+              </div>
+
+              <div class="tb-menu-divider"></div>
+
+              <button class="tb-menu-item" id="account-profile">
+                <span class="material-symbols-outlined">badge</span>
+                <div class="tb-menu-item-body">
+                  <div class="tb-menu-item-title" data-i18n="account.profile">Mi perfil</div>
+                  <div class="tb-menu-item-sub" data-i18n="account.profile.sub">Datos de la cuenta.</div>
+                </div>
+              </button>
+              <button class="tb-menu-item" id="account-settings">
+                <span class="material-symbols-outlined">tune</span>
+                <div class="tb-menu-item-body">
+                  <div class="tb-menu-item-title" data-i18n="account.settings">Preferencias</div>
+                  <div class="tb-menu-item-sub" data-i18n="account.settings.sub">Abrir configuracion.</div>
+                </div>
+              </button>
+              <button class="tb-menu-item tb-menu-item-danger" id="logout-btn">
+                <span class="material-symbols-outlined">logout</span>
+                <div class="tb-menu-item-body">
+                  <div class="tb-menu-item-title" data-i18n="account.logout">Cerrar sesion</div>
+                  <div class="tb-menu-item-sub" data-i18n="account.logout.sub">Salir del portal.</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section id="main-content"></section>
     </main>
   </div>
-</div>
 
-<!-- ── Toast notifications ───────────────────────────────────────────────── -->
-<div id="toast-container"></div>
+  <div id="toast-container"></div>
 
-<script src="./js/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
