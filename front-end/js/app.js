@@ -4,7 +4,7 @@
 (function () {
   "use strict";
 
-  const API = "http://127.0.0.1:8000/api";
+  const API = "/api";
   const LS_TOKEN = "medai_token";
   const LS_USER  = "medai_user";
 

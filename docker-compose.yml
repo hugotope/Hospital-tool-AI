@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: back-end/Dockerfile
+    container_name: hospital-ai-backend
+    restart: unless-stopped
+    environment:
+      HOSPITAL_HOST: 0.0.0.0
+      HOSPITAL_PORT: 8000
+      HOSPITAL_DEBUG: 0
+      HOSPITAL_CORS_ORIGINS: http://localhost
+    volumes:
+      - ./back-end:/app/back-end
+      - ./models-ia:/app/models-ia
+      - ./uploaded_datasets:/app/uploaded_datasets
+      - ./healthcare_dataset_100k.csv:/app/healthcare_dataset_100k.csv
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: front-end/Dockerfile
+    container_name: hospital-ai-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"

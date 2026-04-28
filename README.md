@@ -27,6 +27,23 @@ Abre `front-end/index.html` con un servidor local (recomendado) o desde navegado
 3. Endpoint de preview:
    - `http://127.0.0.1:8000/api/dataset/preview?rows=12`
 
+## Ejecutar con Docker (recomendado)
+
+1. Construir y levantar contenedores:
+   - `docker compose up --build`
+2. Abrir aplicacion:
+   - `http://localhost`
+3. Credenciales demo:
+   - Usuario: `admin`
+   - Contrasena: `1234`
+
+Comandos utiles:
+
+- Detener contenedores:
+  - `docker compose down`
+- Ver logs:
+  - `docker compose logs -f`
+
 ## Configuracion local
 
 Variables opcionales del backend:
