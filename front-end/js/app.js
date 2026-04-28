@@ -19,6 +19,18 @@
   const tRisk    = (n) => window.I18n.tRisk(n);
   const tGender  = (g) => window.I18n.tGender(g);
 
+  function splitSymptoms(raw) {
+    const parts = Array.isArray(raw) ? raw : String(raw || "").split(",");
+    const dedup = new Map();
+    parts.forEach((p) => {
+      const clean = String(p || "").trim().replace(/\s+/g, " ");
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (!dedup.has(key)) dedup.set(key, clean);
+    });
+    return Array.from(dedup.values());
+  }
+
   // ── Toast ───────────────────────────────────────────────────────────────
   function toast(message, type = "info") {
     const wrap = $("#toast-container");
@@ -196,6 +208,7 @@
     diagnosis: renderDiagnosis,
     patients: renderPatients,
     diseases: renderDiseases,
+    doctors: renderDoctors,
     analytics: renderAnalytics,
     anomalies: renderAnomalies,
     dataset: renderDataset,
@@ -854,7 +867,7 @@
     try {
       const r = await api("/patients/import-dataset", {
         method: "POST",
-        body: { dataset: dsPath, max_rows: 2000 },
+        body: { dataset: dsPath },
       });
       msg.innerHTML = `<div class="alert alert-success">${t("patients.import.ok", { n: r.imported || 0 })}</div>`;
       toast(t("patients.import.ok", { n: r.imported || 0 }), "success");
@@ -902,26 +915,237 @@
 
   // ═══════════════════════ DISEASES ═══════════════════════
   async function renderDiseases() {
-    CONTENT().innerHTML = PAGE("diseases.title", "diseases.sub", `<div id="dis-grid" class="grid-3"><div class="empty"><div class="spinner"></div></div></div>`);
-    try {
-      const list = await api("/diseases");
-      if (!list.length) { $("#dis-grid").innerHTML = `<div class="empty">${t("common.empty")}</div>`; return; }
-      $("#dis-grid").innerHTML = list.map(d => `
-        <div class="disease-card">
-          <div class="disease-card-head">
-            <div class="disease-icon"><span class="material-symbols-outlined">coronavirus</span></div>
-            <div>
-              <div class="disease-name">${escapeHtml(tDx(d.name))}</div>
-              <div class="disease-cases">${(d.count || 0).toLocaleString()} ${t("patients.kpi.total").toLowerCase()} · ${t("common.age")} ${d.avg_age}</div>
-            </div>
+    CONTENT().innerHTML = PAGE("diseases.title", "diseases.sub", `
+      <div class="card mb-16">
+        <div class="card-header"><h3 class="card-title">${t("diseases.create")}</h3></div>
+        <div class="grid-2" style="gap:10px;">
+          <div class="form-field">
+            <label>${t("diseases.name")}</label>
+            <input id="disease-name" />
           </div>
-          <div class="disease-symptoms">
-            ${(d.common_symptoms || []).slice(0, 6).map(s => `<span class="disease-sym-tag">${escapeHtml(tSym(s))}</span>`).join("")}
+          <div class="form-field">
+            <label>${t("diseases.symptoms")}</label>
+            <input id="disease-symptoms" list="symptoms-bank" placeholder="${t("diseases.symptoms.placeholder")}" />
+            <datalist id="symptoms-bank"></datalist>
           </div>
-        </div>`).join("");
-    } catch (e) {
-      $("#dis-grid").innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+        </div>
+        <div class="form-field">
+          <label>${t("diseases.selected")}</label>
+          <div id="disease-sym-chipbox" class="disease-symptoms"></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-secondary" id="disease-add-sym">${t("diseases.addSymptom")}</button>
+          <button class="btn btn-primary" id="disease-save">${t("diseases.save")}</button>
+        </div>
+        <div id="disease-msg" class="mt-12"></div>
+      </div>
+      <div id="dis-grid" class="grid-3"><div class="empty"><div class="spinner"></div></div></div>
+    `);
+
+    const selectedSymptoms = new Map();
+    function renderSymptomChips() {
+      const box = $("#disease-sym-chipbox");
+      const values = Array.from(selectedSymptoms.values());
+      if (!values.length) {
+        box.innerHTML = `<span class="text-sm text-muted">${t("common.empty")}</span>`;
+        return;
+      }
+      box.innerHTML = values.map((sym) => `
+        <span class="disease-sym-tag" style="display:inline-flex;align-items:center;gap:6px;">
+          ${escapeHtml(sym)}
+          <button class="btn btn-ghost btn-sm" style="padding:0 6px;" data-rm-sym="${escapeHtml(sym.toLowerCase())}">&times;</button>
+        </span>
+      `).join("");
+      $$("[data-rm-sym]").forEach((b) => b.addEventListener("click", () => {
+        selectedSymptoms.delete(b.dataset.rmSym);
+        renderSymptomChips();
+      }));
     }
+
+    function addCurrentSymptom() {
+      const inp = $("#disease-symptoms");
+      const val = inp.value.trim();
+      if (!val) return;
+      splitSymptoms(val).forEach((sym) => selectedSymptoms.set(sym.toLowerCase(), sym));
+      inp.value = "";
+      renderSymptomChips();
+    }
+
+    $("#disease-add-sym").addEventListener("click", addCurrentSymptom);
+    $("#disease-symptoms").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === ",") {
+        e.preventDefault();
+        addCurrentSymptom();
+      }
+    });
+    $("#disease-save").addEventListener("click", async () => {
+      addCurrentSymptom();
+      const name = $("#disease-name").value.trim();
+      const symptoms = Array.from(selectedSymptoms.values());
+      try {
+        await api("/diseases", { method: "POST", body: { name, symptoms } });
+        $("#disease-msg").innerHTML = `<div class="alert alert-success">${t("diseases.saved")}</div>`;
+        $("#disease-name").value = "";
+        selectedSymptoms.clear();
+        renderSymptomChips();
+        await loadSymptomsBank();
+        await loadDiseasesList();
+      } catch (e) {
+        $("#disease-msg").innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+      }
+    });
+
+    async function loadSymptomsBank() {
+      try {
+        const r = await api("/diseases/symptoms");
+        const bank = r.symptoms || [];
+        $("#symptoms-bank").innerHTML = bank.map((s) => `<option value="${escapeHtml(s)}"></option>`).join("");
+      } catch (_) {}
+    }
+
+    async function loadDiseasesList() {
+      try {
+        const list = await api("/diseases");
+        if (!list.length) { $("#dis-grid").innerHTML = `<div class="empty">${t("common.empty")}</div>`; return; }
+        $("#dis-grid").innerHTML = list.map(d => `
+          <div class="disease-card">
+            <div class="disease-card-head">
+              <div class="disease-icon"><span class="material-symbols-outlined">coronavirus</span></div>
+              <div>
+                <div class="disease-name">${escapeHtml(tDx(d.name))}</div>
+                <div class="disease-cases">${(d.count || 0).toLocaleString()} ${t("patients.kpi.total").toLowerCase()} · ${t("common.age")} ${d.avg_age || 0}${d.manual ? ` · <span class="badge badge-info">${t("diseases.manual")}</span>` : ""}</div>
+              </div>
+            </div>
+            <div class="disease-symptoms">
+              ${(d.common_symptoms || []).slice(0, 8).map(s => `<span class="disease-sym-tag">${escapeHtml(tSym(s))}</span>`).join("")}
+            </div>
+          </div>`).join("");
+      } catch (e) {
+        $("#dis-grid").innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    renderSymptomChips();
+    await loadSymptomsBank();
+    await loadDiseasesList();
+  }
+
+  // ═══════════════════════ DOCTORS ═══════════════════════
+  async function renderDoctors() {
+    CONTENT().innerHTML = PAGE("doctors.title", "doctors.sub", `
+      <div class="card mb-16">
+        <div class="card-header"><h3 class="card-title">${t("doctors.create")}</h3></div>
+        <input type="hidden" id="doc-id" />
+        <div class="grid-4" style="gap:10px;">
+          <div class="form-field"><label>${t("common.name")}</label><input id="doc-name" /></div>
+          <div class="form-field"><label>${t("doctors.specialty")}</label><input id="doc-specialty" /></div>
+          <div class="form-field"><label>${t("doctors.zone")}</label><input id="doc-zone" /></div>
+          <div class="form-field"><label>${t("users.email")}</label><input id="doc-email" type="email" /></div>
+          <div class="form-field"><label>${t("doctors.phone")}</label><input id="doc-phone" /></div>
+          <div class="form-field"><label>${t("doctors.shift")}</label><input id="doc-shift" /></div>
+        </div>
+        <div class="form-field"><label>${t("doctors.notes")}</label><textarea id="doc-notes"></textarea></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary" id="doc-save">${t("common.save")}</button>
+          <button class="btn btn-secondary" id="doc-reset">${t("diagnosis.resetBtn")}</button>
+        </div>
+        <div id="doc-msg" class="mt-12"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">${t("doctors.list")}</h3>
+          <button class="btn btn-ghost btn-sm" id="doc-refresh">${t("common.refresh")}</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>${t("common.name")}</th>
+                <th>${t("doctors.specialty")}</th>
+                <th>${t("doctors.zone")}</th>
+                <th>${t("users.email")}</th>
+                <th>${t("doctors.phone")}</th>
+                <th>${t("doctors.shift")}</th>
+                <th>${t("common.actions")}</th>
+              </tr>
+            </thead>
+            <tbody id="doc-tbody"><tr><td colspan="7" class="empty">${t("common.loading")}</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    `);
+
+    const toBody = () => ({
+      name: $("#doc-name").value.trim(),
+      specialty: $("#doc-specialty").value.trim(),
+      zone: $("#doc-zone").value.trim(),
+      email: $("#doc-email").value.trim(),
+      phone: $("#doc-phone").value.trim(),
+      shift: $("#doc-shift").value.trim(),
+      notes: $("#doc-notes").value.trim(),
+    });
+    const resetDocForm = () => {
+      $("#doc-id").value = "";
+      $("#doc-name").value = "";
+      $("#doc-specialty").value = "";
+      $("#doc-zone").value = "";
+      $("#doc-email").value = "";
+      $("#doc-phone").value = "";
+      $("#doc-shift").value = "";
+      $("#doc-notes").value = "";
+    };
+
+    async function loadDoctors() {
+      try {
+        const r = await api("/doctors");
+        const rows = r.doctors || [];
+        $("#doc-tbody").innerHTML = rows.length
+          ? rows.map((d) => `
+            <tr>
+              <td><strong>${escapeHtml(d.name)}</strong></td>
+              <td>${escapeHtml(d.specialty || "")}</td>
+              <td>${escapeHtml(d.zone || "")}</td>
+              <td>${escapeHtml(d.email || "")}</td>
+              <td>${escapeHtml(d.phone || "")}</td>
+              <td>${escapeHtml(d.shift || "")}</td>
+              <td><button class="btn btn-secondary btn-sm" data-edit-doc="${d.id}">${t("common.edit")}</button></td>
+            </tr>`).join("")
+          : `<tr><td colspan="7" class="empty">${t("common.empty")}</td></tr>`;
+        $$("#doc-tbody [data-edit-doc]").forEach((b) => b.addEventListener("click", () => {
+          const row = rows.find((x) => String(x.id) === String(b.dataset.editDoc));
+          if (!row) return;
+          $("#doc-id").value = row.id;
+          $("#doc-name").value = row.name || "";
+          $("#doc-specialty").value = row.specialty || "";
+          $("#doc-zone").value = row.zone || "";
+          $("#doc-email").value = row.email || "";
+          $("#doc-phone").value = row.phone || "";
+          $("#doc-shift").value = row.shift || "";
+          $("#doc-notes").value = row.notes || "";
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }));
+      } catch (e) {
+        $("#doc-tbody").innerHTML = `<tr><td colspan="7" class="alert alert-danger">${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    $("#doc-save").addEventListener("click", async () => {
+      const body = toBody();
+      const id = $("#doc-id").value.trim();
+      try {
+        if (id) await api(`/doctors/${id}`, { method: "PUT", body });
+        else await api("/doctors", { method: "POST", body });
+        $("#doc-msg").innerHTML = `<div class="alert alert-success">${id ? t("doctors.updated") : t("doctors.created")}</div>`;
+        resetDocForm();
+        await loadDoctors();
+      } catch (e) {
+        $("#doc-msg").innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+      }
+    });
+    $("#doc-reset").addEventListener("click", resetDocForm);
+    $("#doc-refresh").addEventListener("click", loadDoctors);
+    await loadDoctors();
   }
 
   // ═══════════════════════ ANALYTICS ═══════════════════════
@@ -1422,7 +1646,8 @@
 
   // ═══════════════════════ REPORT ═══════════════════════
   function renderReport() {
-    const url = API + "/report/view";
+    const token = localStorage.getItem(LS_TOKEN) || "";
+    const url = API + "/report/view" + (token ? `?access_token=${encodeURIComponent(token)}` : "");
     CONTENT().innerHTML = PAGE("report.title", "report.sub", `
       <div class="card">
         <p class="text-sm text-muted">${t("report.hint")}</p>
@@ -1479,12 +1704,15 @@
     // Sidebar nav
     $$(".nav-item").forEach(n => n.addEventListener("click", () => navigate(n.dataset.section)));
 
-    // Mobile toggle
-    $("#sidebar-toggle").addEventListener("click", () => {
-      const sb = $("#sidebar");
-      if (window.innerWidth <= 780) sb.classList.toggle("open");
-      else sb.classList.toggle("collapsed");
-    });
+    // Mobile toggle (optional button if present)
+    const sidebarToggle = $("#sidebar-toggle");
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener("click", () => {
+        const sb = $("#sidebar");
+        if (window.innerWidth <= 780) sb.classList.toggle("open");
+        else sb.classList.toggle("collapsed");
+      });
+    }
 
     // ── Topbar dropdowns (settings / account) ───────────────────────────
     initTopbarMenus();

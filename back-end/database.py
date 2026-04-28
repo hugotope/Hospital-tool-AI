@@ -69,6 +69,43 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_patients_diagnosis ON patients(diagnosis);
             CREATE INDEX IF NOT EXISTS idx_patients_zone ON patients(hospital_zone);
             CREATE INDEX IF NOT EXISTS idx_patients_created_at ON patients(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS diseases (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT    UNIQUE NOT NULL,
+                created_by    TEXT    DEFAULT '',
+                created_at    TEXT    DEFAULT (datetime('now')),
+                updated_at    TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS symptoms (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT    UNIQUE NOT NULL,
+                normalized    TEXT    UNIQUE NOT NULL,
+                created_at    TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS disease_symptoms (
+                disease_id    INTEGER NOT NULL,
+                symptom_id    INTEGER NOT NULL,
+                PRIMARY KEY (disease_id, symptom_id),
+                FOREIGN KEY (disease_id) REFERENCES diseases(id) ON DELETE CASCADE,
+                FOREIGN KEY (symptom_id) REFERENCES symptoms(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS doctors (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT    NOT NULL,
+                specialty     TEXT    NOT NULL,
+                zone          TEXT    NOT NULL,
+                email         TEXT    DEFAULT '',
+                phone         TEXT    DEFAULT '',
+                shift         TEXT    DEFAULT '',
+                notes         TEXT    DEFAULT '',
+                is_active     INTEGER DEFAULT 1,
+                created_at    TEXT    DEFAULT (datetime('now')),
+                updated_at    TEXT    DEFAULT (datetime('now'))
+            );
         """)
         # Seed default admin
         if not conn.execute("SELECT id FROM users WHERE username='admin'").fetchone():
@@ -76,7 +113,199 @@ def init_db() -> None:
                 "INSERT INTO users (username,name,email,password_hash,role) VALUES (?,?,?,?,?)",
                 ("admin", "Administrador", "admin@hospital.com", hash_password("1234"), "admin"),
             )
+        # Seed base doctors
+        if not conn.execute("SELECT id FROM doctors LIMIT 1").fetchone():
+            conn.executemany(
+                """
+                INSERT INTO doctors (name, specialty, zone, email, phone, shift, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    ("Dr. Andres Morales", "Cardiologia", "Cardiologia", "andres.morales@hospital.com", "+34 600 100 100", "Manana", ""),
+                    ("Dra. Laura Castillo", "Cardiologia", "Cardiologia", "laura.castillo@hospital.com", "+34 600 100 101", "Tarde", ""),
+                    ("Dr. Javier Rojas", "Neurologia", "Neurologia", "javier.rojas@hospital.com", "+34 600 100 102", "Noche", ""),
+                    ("Dra. Sofia Ibanez", "Neumologia", "Neumologia", "sofia.ibanez@hospital.com", "+34 600 100 103", "Manana", ""),
+                ],
+            )
         conn.commit()
+
+
+def _normalize_term(value: str) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def _ensure_symptom(conn: sqlite3.Connection, symptom_name: str) -> int | None:
+    normalized = _normalize_term(symptom_name)
+    if not normalized:
+        return None
+    row = conn.execute("SELECT id FROM symptoms WHERE normalized=?", (normalized,)).fetchone()
+    if row:
+        return int(row["id"])
+    display_name = " ".join((symptom_name or "").strip().split())
+    conn.execute(
+        "INSERT INTO symptoms (name, normalized) VALUES (?, ?)",
+        (display_name, normalized),
+    )
+    row = conn.execute("SELECT id FROM symptoms WHERE normalized=?", (normalized,)).fetchone()
+    return int(row["id"]) if row else None
+
+
+def list_symptoms() -> list[str]:
+    with get_connection() as conn:
+        rows = conn.execute("SELECT name FROM symptoms ORDER BY name COLLATE NOCASE").fetchall()
+        return [r["name"] for r in rows]
+
+
+def list_manual_diseases() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT d.id, d.name, d.created_by, d.created_at, d.updated_at,
+                   COUNT(ds.symptom_id) AS symptoms_count
+            FROM diseases d
+            LEFT JOIN disease_symptoms ds ON ds.disease_id = d.id
+            GROUP BY d.id
+            ORDER BY d.name COLLATE NOCASE
+            """
+        ).fetchall()
+        result = []
+        for row in rows:
+            symptoms = conn.execute(
+                """
+                SELECT s.name
+                FROM symptoms s
+                JOIN disease_symptoms ds ON ds.symptom_id = s.id
+                WHERE ds.disease_id = ?
+                ORDER BY s.name COLLATE NOCASE
+                """,
+                (row["id"],),
+            ).fetchall()
+            result.append({
+                "id": row["id"],
+                "name": row["name"],
+                "created_by": row["created_by"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "common_symptoms": [s["name"] for s in symptoms],
+                "count": 0,
+                "avg_age": 0,
+            })
+        return result
+
+
+def upsert_manual_disease(name: str, symptoms: list[str], created_by: str = "") -> dict:
+    clean_name = " ".join((name or "").strip().split())
+    if not clean_name:
+        raise ValueError("Nombre de enfermedad requerido.")
+    with get_connection() as conn:
+        row = conn.execute("SELECT id FROM diseases WHERE lower(name)=lower(?)", (clean_name,)).fetchone()
+        if row:
+            disease_id = int(row["id"])
+            conn.execute(
+                "UPDATE diseases SET name=?, updated_at=datetime('now') WHERE id=?",
+                (clean_name, disease_id),
+            )
+            conn.execute("DELETE FROM disease_symptoms WHERE disease_id=?", (disease_id,))
+        else:
+            conn.execute(
+                "INSERT INTO diseases (name, created_by) VALUES (?, ?)",
+                (clean_name, created_by),
+            )
+            disease_id = int(conn.execute("SELECT id FROM diseases WHERE lower(name)=lower(?)", (clean_name,)).fetchone()["id"])
+
+        seen: set[int] = set()
+        for symptom in symptoms or []:
+            symptom_id = _ensure_symptom(conn, symptom)
+            if symptom_id and symptom_id not in seen:
+                seen.add(symptom_id)
+                conn.execute(
+                    "INSERT OR IGNORE INTO disease_symptoms (disease_id, symptom_id) VALUES (?, ?)",
+                    (disease_id, symptom_id),
+                )
+        conn.commit()
+
+        out = conn.execute(
+            "SELECT id, name, created_by, created_at, updated_at FROM diseases WHERE id=?",
+            (disease_id,),
+        ).fetchone()
+        syms = conn.execute(
+            """
+            SELECT s.name
+            FROM symptoms s
+            JOIN disease_symptoms ds ON ds.symptom_id = s.id
+            WHERE ds.disease_id = ?
+            ORDER BY s.name COLLATE NOCASE
+            """,
+            (disease_id,),
+        ).fetchall()
+        return {
+            "id": out["id"],
+            "name": out["name"],
+            "created_by": out["created_by"],
+            "created_at": out["created_at"],
+            "updated_at": out["updated_at"],
+            "common_symptoms": [s["name"] for s in syms],
+            "count": 0,
+            "avg_age": 0,
+        }
+
+
+def list_doctors() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, specialty, zone, email, phone, shift, notes, is_active, created_at, updated_at
+            FROM doctors
+            WHERE is_active = 1
+            ORDER BY name COLLATE NOCASE
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def create_doctor(name: str, specialty: str, zone: str, email: str = "", phone: str = "", shift: str = "", notes: str = "") -> dict:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO doctors (name, specialty, zone, email, phone, shift, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                (name or "").strip(),
+                (specialty or "").strip(),
+                (zone or "").strip(),
+                (email or "").strip(),
+                (phone or "").strip(),
+                (shift or "").strip(),
+                (notes or "").strip(),
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM doctors ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else {}
+
+
+def update_doctor(doctor_id: int, name: str, specialty: str, zone: str, email: str = "", phone: str = "", shift: str = "", notes: str = "") -> bool:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            UPDATE doctors
+            SET name=?, specialty=?, zone=?, email=?, phone=?, shift=?, notes=?, updated_at=datetime('now')
+            WHERE id=? AND is_active=1
+            """,
+            (
+                (name or "").strip(),
+                (specialty or "").strip(),
+                (zone or "").strip(),
+                (email or "").strip(),
+                (phone or "").strip(),
+                (shift or "").strip(),
+                (notes or "").strip(),
+                doctor_id,
+            ),
+        )
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def create_patient(

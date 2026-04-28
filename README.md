@@ -26,3 +26,22 @@ Abre `front-end/index.html` con un servidor local (recomendado) o desde navegado
    - `python back-end/app.py`
 3. Endpoint de preview:
    - `http://127.0.0.1:8000/api/dataset/preview?rows=12`
+
+## Configuracion local
+
+Variables opcionales del backend:
+
+- `HOSPITAL_HOST`: host de Flask. Por defecto `127.0.0.1`.
+- `HOSPITAL_PORT`: puerto de Flask. Por defecto `8000`.
+- `HOSPITAL_DEBUG`: usa `1` solo para desarrollo local. Por defecto desactivado.
+- `HOSPITAL_CORS_ORIGINS`: origenes permitidos separados por coma.
+- `HOSPITAL_MAX_UPLOAD_MB`: limite de subida de CSV en MB. Por defecto `25`.
+
+Para tests:
+
+- `pip install -r back-end/requirements-dev.txt`
+- `pytest`
+
+Para entrenamiento con Spark opcional:
+
+- `pip install -r models-ia/requirements-train.txt`

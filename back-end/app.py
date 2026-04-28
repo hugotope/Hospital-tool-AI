@@ -47,7 +47,17 @@ from ai_predictor import predictor
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("HOSPITAL_MAX_UPLOAD_MB", "25")) * 1024 * 1024
+
+
+def _cors_origins() -> list[str]:
+    configured = os.environ.get("HOSPITAL_CORS_ORIGINS", "").strip()
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return ["http://127.0.0.1:5500", "http://localhost:5500", "null"]
+
+
+CORS(app, resources={r"/api/*": {"origins": _cors_origins()}})
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT_DIR / "healthcare_dataset_100k.csv"
@@ -73,7 +83,10 @@ predictor.load()
 
 def _get_token() -> str:
     header = request.headers.get("Authorization", "")
-    return header.replace("Bearer ", "").strip()
+    token = header.replace("Bearer ", "").strip()
+    if token:
+        return token
+    return request.args.get("access_token", "").strip()
 
 
 def require_auth(f):
@@ -264,10 +277,13 @@ def translate_symptoms(text: str) -> str:
 def _resolve_training_dataset(data: dict) -> Path:
     dataset_name = str(data.get("dataset_name", "")).strip()
     dataset_path_raw = str(data.get("dataset_path", "")).strip()
+    dataset_alias = str(data.get("dataset", "")).strip()
 
     # Prioridad: ruta explícita enviada por frontend
     if dataset_path_raw:
         candidate = Path(dataset_path_raw)
+    elif dataset_alias:
+        candidate = Path(dataset_alias)
     elif dataset_name:
         if dataset_name == DATASET_PATH.name:
             candidate = DATASET_PATH
@@ -380,6 +396,20 @@ def _build_diseases_cache() -> list:
     result.sort(key=lambda x: x["count"], reverse=True)
     _diseases_cache = result
     return result
+
+
+def _parse_symptoms(raw_value) -> list[str]:
+    if isinstance(raw_value, list):
+        raw_parts = [str(x) for x in raw_value]
+    else:
+        raw_parts = str(raw_value or "").split(",")
+    dedup: dict[str, str] = {}
+    for item in raw_parts:
+        clean = " ".join(item.strip().split())
+        norm = clean.lower()
+        if clean and norm not in dedup:
+            dedup[norm] = clean
+    return list(dedup.values())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -540,10 +570,77 @@ def dataset_upload():
 @app.get("/api/diseases")
 @require_auth
 def get_diseases():
-    if not DATASET_PATH.exists():
-        return jsonify({"error": "Dataset no encontrado."}), 404
     try:
-        return jsonify(_build_diseases_cache()), 200
+        dataset_diseases = _build_diseases_cache() if DATASET_PATH.exists() else []
+        manual_diseases = db.list_manual_diseases()
+        merged: dict[str, dict] = {}
+
+        for item in dataset_diseases:
+            key = item.get("name", "").strip().lower()
+            if key:
+                merged[key] = dict(item)
+
+        for item in manual_diseases:
+            key = item.get("name", "").strip().lower()
+            if not key:
+                continue
+            if key in merged:
+                current = merged[key]
+                all_syms = {s.lower(): s for s in current.get("common_symptoms", [])}
+                for sym in item.get("common_symptoms", []):
+                    if sym.lower() not in all_syms:
+                        all_syms[sym.lower()] = sym
+                current["common_symptoms"] = list(all_syms.values())[:12]
+                current["manual"] = True
+            else:
+                manual_item = dict(item)
+                manual_item["manual"] = True
+                merged[key] = manual_item
+
+        result = sorted(
+            merged.values(),
+            key=lambda x: (-(x.get("count") or 0), x.get("name", "")),
+        )
+        return jsonify(result), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/diseases/symptoms")
+@require_auth
+def get_symptoms_bank():
+    try:
+        saved = {s.lower(): s for s in db.list_symptoms()}
+        if DATASET_PATH.exists():
+            for item in _build_diseases_cache():
+                for sym in item.get("common_symptoms", []):
+                    key = str(sym or "").strip().lower()
+                    if key and key not in saved:
+                        saved[key] = str(sym).strip()
+        return jsonify({"symptoms": sorted(saved.values(), key=lambda x: x.lower())}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/diseases")
+@require_auth
+def create_or_update_disease():
+    data = request.get_json(silent=True) or {}
+    disease_name = str(data.get("name", "")).strip()
+    symptoms = _parse_symptoms(data.get("symptoms", []))
+    if not disease_name:
+        return jsonify({"error": "Nombre de enfermedad requerido."}), 400
+    if not symptoms:
+        return jsonify({"error": "Debes indicar al menos un sintoma."}), 400
+    try:
+        saved = db.upsert_manual_disease(
+            disease_name,
+            symptoms,
+            created_by=request.session.get("username", ""),
+        )
+        return jsonify({"message": "Enfermedad guardada correctamente.", "disease": saved}), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -734,7 +831,7 @@ def import_patients_dataset():
     max_rows = data.get("max_rows")
     if max_rows is not None:
         try:
-            max_rows = max(1, min(int(max_rows), 100000))
+            max_rows = max(1, int(max_rows))
         except Exception:
             return jsonify({"error": "max_rows debe ser un numero entero."}), 400
 
@@ -749,6 +846,7 @@ def import_patients_dataset():
         return jsonify({
             "message": "Importacion de pacientes completada.",
             **result,
+            "imported": result.get("inserted", 0),
         }), 200
     except Exception as exc:
         return jsonify({"error": f"Error importando dataset: {exc}"}), 500
@@ -1078,6 +1176,7 @@ _REPORT_TEMPLATE = """<!doctype html>
 
 
 @app.get("/api/report/view")
+@require_auth
 def report_view():
     model_info = predictor.get_model_info()
     eda = db.patients_eda()
@@ -1150,9 +1249,73 @@ def delete_user(user_id: int):
     return jsonify({"error": "Usuario no encontrado o no se puede eliminar."}), 404
 
 
+@app.get("/api/doctors")
+@require_auth
+def list_doctors():
+    try:
+        return jsonify({"doctors": db.list_doctors()}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/doctors")
+@require_admin
+def create_doctor():
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name", "")).strip()
+    specialty = str(data.get("specialty", "")).strip()
+    zone = str(data.get("zone", "")).strip()
+    if not name or not specialty or not zone:
+        return jsonify({"error": "Campos requeridos: name, specialty, zone"}), 400
+    try:
+        doctor = db.create_doctor(
+            name=name,
+            specialty=specialty,
+            zone=zone,
+            email=str(data.get("email", "")).strip(),
+            phone=str(data.get("phone", "")).strip(),
+            shift=str(data.get("shift", "")).strip(),
+            notes=str(data.get("notes", "")).strip(),
+        )
+        return jsonify({"message": "Doctor creado.", "doctor": doctor}), 201
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.put("/api/doctors/<int:doctor_id>")
+@require_admin
+def update_doctor(doctor_id: int):
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name", "")).strip()
+    specialty = str(data.get("specialty", "")).strip()
+    zone = str(data.get("zone", "")).strip()
+    if not name or not specialty or not zone:
+        return jsonify({"error": "Campos requeridos: name, specialty, zone"}), 400
+    try:
+        ok = db.update_doctor(
+            doctor_id=doctor_id,
+            name=name,
+            specialty=specialty,
+            zone=zone,
+            email=str(data.get("email", "")).strip(),
+            phone=str(data.get("phone", "")).strip(),
+            shift=str(data.get("shift", "")).strip(),
+            notes=str(data.get("notes", "")).strip(),
+        )
+        if not ok:
+            return jsonify({"error": "Doctor no encontrado."}), 404
+        return jsonify({"message": "Doctor actualizado."}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    app.run(
+        host=os.environ.get("HOSPITAL_HOST", "127.0.0.1"),
+        port=int(os.environ.get("HOSPITAL_PORT", "8000")),
+        debug=os.environ.get("HOSPITAL_DEBUG", "0") == "1",
+    )

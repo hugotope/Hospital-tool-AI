@@ -64,22 +64,7 @@
 
     <!-- Sidebar -->
     <aside id="sidebar">
-      <div class="sidebar-brand">
-        <div class="brand-icon">M</div>
-        <div class="brand-text">
-          <div class="brand-name">IHSS Portal</div>
-          <div class="brand-sub">MedAI v2.0</div>
-        </div>
-      </div>
-
-      <!-- Emergency Alert CTA (Stitch) -->
-      <button class="sidebar-emergency" id="emergency-btn" type="button" title="Emergency Alert">
-        <span class="nav-icon">warning</span>
-        <span data-i18n="sidebar.emergency">Emergency Alert</span>
-      </button>
-
       <nav class="sidebar-nav" id="sidebar-nav">
-        <div class="nav-group-label" data-i18n="nav.group.main">Principal</div>
         <a class="nav-item active" data-section="dashboard">
           <span class="nav-icon">dashboard</span><span data-i18n="nav.dashboard">Dashboard</span>
         </a>
@@ -93,7 +78,6 @@
           <span class="nav-icon">coronavirus</span><span data-i18n="nav.diseases">Enfermedades</span>
         </a>
 
-        <div class="nav-group-label" data-i18n="nav.group.analytics">Analitica</div>
         <a class="nav-item" data-section="analytics">
           <span class="nav-icon">monitoring</span><span data-i18n="nav.analytics">Analisis</span>
         </a>
@@ -101,27 +85,31 @@
           <span class="nav-icon">release_alert</span><span data-i18n="nav.anomalies">Anomalias</span>
         </a>
 
-        <div class="nav-group-label" data-i18n="nav.group.admin">Administracion</div>
         <a class="nav-item" data-section="dataset">
           <span class="nav-icon">settings_input_component</span><span data-i18n="nav.dataset">Dataset</span>
         </a>
         <a class="nav-item" data-section="model">
           <span class="nav-icon">smart_toy</span><span data-i18n="nav.model">Modelo</span>
         </a>
+        <a class="nav-item" data-section="doctors">
+          <span class="nav-icon">stethoscope</span><span data-i18n="nav.doctors">Doctores</span>
+        </a>
         <a class="nav-item admin-only" data-section="users">
           <span class="nav-icon">group</span><span data-i18n="nav.users">Usuarios</span>
         </a>
       </nav>
+
+      <!-- Emergency Alert CTA (moved to bottom) -->
+      <button class="sidebar-emergency" id="emergency-btn" type="button" title="Emergencia">
+        <span class="nav-icon">warning</span>
+        <span data-i18n="sidebar.emergency">Emergencia</span>
+      </button>
     </aside>
 
     <!-- Main -->
     <main id="main-area">
       <header class="topbar">
         <div class="topbar-left">
-          <button class="sidebar-toggle" id="sidebar-toggle" title="Menu">
-            <span class="material-symbols-outlined">menu</span>
-          </button>
-          <div class="topbar-brand">IHSS Clinical Portal</div>
           <div class="breadcrumb" id="page-title">Dashboard</div>
         </div>
         <div class="topbar-right">

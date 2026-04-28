@@ -220,10 +220,13 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
   z-index: 30;
 }
 #sidebar.collapsed { width: 72px; }
-#sidebar.collapsed .brand-text,
 #sidebar.collapsed .nav-item span:not(.nav-icon),
 #sidebar.collapsed .nav-group-label,
 #sidebar.collapsed .sidebar-emergency span:not(.nav-icon) { display: none; }
+#sidebar.collapsed:hover { width: var(--sidebar-w); }
+#sidebar.collapsed:hover .nav-item span:not(.nav-icon),
+#sidebar.collapsed:hover .nav-group-label,
+#sidebar.collapsed:hover .sidebar-emergency span:not(.nav-icon) { display: inline; }
 
 .sidebar-brand {
   display: flex; align-items: center; gap: 12px;
@@ -250,7 +253,7 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
 
 /* Emergency alert button inside sidebar (Stitch pattern) */
 .sidebar-emergency {
-  margin: 14px 16px 4px;
+  margin: 10px 16px 16px;
   padding: 10px 14px;
   background: var(--c-danger);
   color: #fff;
@@ -350,7 +353,7 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
   padding: 0 24px;
   position: sticky; top: 0; z-index: 20;
 }
-.topbar-left { display: flex; align-items: center; gap: 14px; }
+.topbar-left { display: flex; align-items: center; gap: 8px; }
 .sidebar-toggle {
   background: transparent; border: 1px solid var(--c-border);
   width: 36px; height: 36px; border-radius: var(--radius-sm);
