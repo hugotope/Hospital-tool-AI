@@ -131,6 +131,9 @@
       }
     }
     checkApiStatus();
+    startApiStatusPolling();
+    refreshNotifications();
+    startNotificationsPolling();
     navigate("dashboard");
   }
 
@@ -164,6 +167,7 @@
     const bindings = [
       { btn: "settings-btn", menu: "settings-menu" },
       { btn: "account-btn",  menu: "account-menu"  },
+      { btn: "notif-btn",    menu: "notif-menu"    },
     ];
     bindings.forEach(({ btn, menu }) => {
       const el = document.getElementById(btn);
@@ -171,6 +175,7 @@
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         toggleMenu(menu);
+        if (menu === "notif-menu") refreshNotifications();
       });
     });
     // Close on outside click
@@ -183,23 +188,159 @@
     });
   }
 
+  // ── Notifications ──────────────────────────────────────────────────────
+  let notifTimer = null;
+  let lastNotifIds = new Set();
+  const NOTIF_LEVEL_ICON = {
+    info: "info",
+    success: "check_circle",
+    warning: "warning",
+    error: "error",
+  };
+
+  function fmtNotifTime(iso) {
+    if (!iso) return "";
+    const s = String(iso).replace("T", " ").slice(0, 19);
+    return s;
+  }
+
+  function notifSourceLabel(src) {
+    return t("notif.source." + (src || "system")) || src || "";
+  }
+
+  function renderNotifications(items) {
+    const list = $("#notif-list");
+    const sub = $("#notif-sub");
+    if (!list || !sub) return;
+    if (!items || !items.length) {
+      list.innerHTML = `<div class="notif-empty">${t("notif.empty")}</div>`;
+      sub.textContent = t("notif.empty");
+      return;
+    }
+    const unread = items.filter((x) => !x.is_read).length;
+    sub.textContent = unread
+      ? t("notif.unread", { n: unread })
+      : t("notif.empty");
+    list.innerHTML = items.map((n) => {
+      const lvl = (n.level || "info").toLowerCase();
+      const icon = NOTIF_LEVEL_ICON[lvl] || "info";
+      const cls = "notif-item level-" + lvl + (n.is_read ? "" : " unread");
+      return `
+        <div class="${cls}">
+          <span class="notif-icon">${icon}</span>
+          <div>
+            <div class="notif-title">${escapeHtml(n.title || "")}</div>
+            ${n.message ? `<div class="notif-msg">${escapeHtml(n.message)}</div>` : ""}
+            <div class="notif-meta">
+              <span class="notif-source">${escapeHtml(notifSourceLabel(n.source))}</span>
+              <span>${escapeHtml(fmtNotifTime(n.created_at))}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  function setNotifBadge(unread) {
+    const dot = $("#notif-dot");
+    const count = $("#notif-count");
+    if (!dot || !count) return;
+    const n = Number(unread || 0);
+    if (n > 0) {
+      dot.classList.add("hidden");
+      count.classList.remove("hidden");
+      count.textContent = n > 99 ? "99+" : String(n);
+    } else {
+      dot.classList.add("hidden");
+      count.classList.add("hidden");
+    }
+  }
+
+  async function refreshNotifications() {
+    try {
+      const r = await api("/notifications?limit=30");
+      const items = r.notifications || [];
+      const unread = Number(r.unread || 0);
+      // Detectar nuevas no leidas para mostrar toast (solo si el panel esta cerrado)
+      const panelOpen = document.getElementById("notif-menu")?.classList.contains("open");
+      const newUnread = items.filter((x) => !x.is_read && !lastNotifIds.has(x.id));
+      if (!panelOpen && newUnread.length && lastNotifIds.size > 0) {
+        const top = newUnread[0];
+        const tt = (top.level === "error" || top.level === "warning") ? "error" : "info";
+        toast(top.title, tt);
+      }
+      lastNotifIds = new Set(items.map((x) => x.id));
+      setNotifBadge(unread);
+      renderNotifications(items);
+    } catch (_) {
+      // No tocamos badge si la red falla; checkApiStatus ya gestiona el fallo.
+    }
+  }
+
+  function startNotificationsPolling() {
+    if (notifTimer) clearInterval(notifTimer);
+    notifTimer = setInterval(refreshNotifications, 15000);
+  }
+
+  function bindNotificationActions() {
+    const markAll = $("#notif-mark-all");
+    const clear = $("#notif-clear");
+    if (markAll) markAll.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await api("/notifications/read", { method: "POST", body: { ids: [] } });
+        await refreshNotifications();
+      } catch (err) { toast(err.message, "error"); }
+    });
+    if (clear) clear.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(t("notif.clear.confirm"))) return;
+      try {
+        await api("/notifications", { method: "DELETE" });
+        await refreshNotifications();
+      } catch (err) { toast(err.message, "error"); }
+    });
+  }
+
   // ── API status pill ────────────────────────────────────────────────────
+  let apiStatusTimer = null;
+  let apiStatusOnline = null;
+
   async function checkApiStatus() {
+    const wrap = $("#api-status");
     const dot = $("#api-status .status-dot");
     const txt = $("#api-status-text");
+    if (!wrap || !dot || !txt) return;
+    let nowOnline = false;
     try {
-      const h = await api("/health");
-      if (h.models_loaded) {
+      const h = await Promise.race([
+        api("/health"),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4500)),
+      ]);
+      if (h && h.models_loaded) {
         dot.className = "status-dot dot-success";
         txt.textContent = t("api.online");
+        wrap.classList.remove("is-offline");
       } else {
         dot.className = "status-dot dot-warning";
         txt.textContent = t("api.noModels");
+        wrap.classList.remove("is-offline");
       }
+      nowOnline = true;
     } catch (_) {
       dot.className = "status-dot dot-danger";
       txt.textContent = t("api.offline");
+      wrap.classList.add("is-offline");
+      nowOnline = false;
+      if (apiStatusOnline === true) {
+        toast(t("api.offline"), "error");
+      }
     }
+    apiStatusOnline = nowOnline;
+  }
+
+  function startApiStatusPolling() {
+    if (apiStatusTimer) clearInterval(apiStatusTimer);
+    apiStatusTimer = setInterval(checkApiStatus, 15000);
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────
@@ -500,7 +641,7 @@
         </div>
 
         <div class="card" id="d-result-card">
-          <div class="card-header"><h3 class="card-title">Output</h3></div>
+          <div class="card-header"><h3 class="card-title">${t("diagnosis.result.title")}</h3></div>
           <div class="empty" id="d-empty">
             <div class="empty-icon material-symbols-outlined">search</div>
             <div>${t("common.empty")}</div>
@@ -1007,19 +1148,24 @@
       try {
         const list = await api("/diseases");
         if (!list.length) { $("#dis-grid").innerHTML = `<div class="empty">${t("common.empty")}</div>`; return; }
-        $("#dis-grid").innerHTML = list.map(d => `
+        $("#dis-grid").innerHTML = list.map(d => {
+          const tags = [];
+          if (d.manual) tags.push(`<span class="badge badge-info">${t("diseases.manual")}</span>`);
+          if (d.new_for_model) tags.push(`<span class="badge badge-warning">${t("diseases.newForModel")}</span>`);
+          return `
           <div class="disease-card">
             <div class="disease-card-head">
               <div class="disease-icon"><span class="material-symbols-outlined">coronavirus</span></div>
               <div>
                 <div class="disease-name">${escapeHtml(tDx(d.name))}</div>
-                <div class="disease-cases">${(d.count || 0).toLocaleString()} ${t("patients.kpi.total").toLowerCase()} · ${t("common.age")} ${d.avg_age || 0}${d.manual ? ` · <span class="badge badge-info">${t("diseases.manual")}</span>` : ""}</div>
+                <div class="disease-cases">${(d.count || 0).toLocaleString()} ${t("patients.kpi.total").toLowerCase()} · ${t("common.age")} ${d.avg_age || 0}${tags.length ? " · " + tags.join(" ") : ""}</div>
               </div>
             </div>
             <div class="disease-symptoms">
               ${(d.common_symptoms || []).slice(0, 8).map(s => `<span class="disease-sym-tag">${escapeHtml(tSym(s))}</span>`).join("")}
             </div>
-          </div>`).join("");
+          </div>`;
+        }).join("");
       } catch (e) {
         $("#dis-grid").innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
       }
@@ -1301,10 +1447,24 @@
     try {
       const fd = new FormData(); fd.append("file", file);
       const r = await api("/dataset/upload", { method: "POST", body: fd });
-      msg.innerHTML = `<div class="alert alert-success">${escapeHtml(r.filename)} · ${r.rows} ${t("dataset.rows")}</div>`;
+      const newDx = (r.new_diseases || r.new_diagnoses || []);
+      const trainingNote = r.training_started
+        ? `<div class="text-xs text-muted mt-8">${escapeHtml(t("model.running", { ds: r.filename }))}</div>`
+        : "";
+      const newDxNote = newDx.length
+        ? `<div class="text-xs text-muted mt-8">+${newDx.length}: ${newDx.slice(0, 6).map(escapeHtml).join(", ")}${newDx.length > 6 ? "…" : ""}</div>`
+        : "";
+      msg.innerHTML = `
+        <div class="alert alert-success">${escapeHtml(r.filename)} · ${r.rows} ${t("dataset.rows")}</div>
+        ${newDxNote}
+        ${trainingNote}
+      `;
       toast(t("dataset.uploaded"), "success");
-      await loadDsList();
-      await populateDatasetSelect("#pipe-ds");
+      await Promise.all([
+        loadDsList(),
+        populateDatasetSelect("#pipe-ds"),
+        refreshNotifications(),
+      ]);
       // Auto-ejecutar pipeline sobre el dataset recien subido
       const sel = $("#pipe-ds");
       if (sel) {
@@ -1323,19 +1483,35 @@
       const items = r.datasets || [];
       if (!items.length) { box.innerHTML = `<div class="empty">${t("common.empty")}</div>`; return; }
       box.innerHTML = items.map(d => `
-        <div class="ds-item">
+        <div class="ds-item${d.active ? " is-active" : ""}">
           <div class="ds-item-icon"><span class="material-symbols-outlined">description</span></div>
           <div class="ds-item-info">
             <div class="ds-item-name">${escapeHtml(d.name)}
               ${d.type === "main" ? `<span class="badge badge-info" style="margin-left:6px;">main</span>` : ""}
+              ${d.active ? `<span class="badge badge-active" style="margin-left:6px;">${escapeHtml(t("dataset.current"))}</span>` : ""}
             </div>
             <div class="ds-item-meta">${d.size_kb} KB</div>
           </div>
-          <button class="btn btn-ghost btn-sm ds-pipe-btn" data-path="${escapeHtml(d.path)}">${t("pipeline.run")}</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${d.active ? "" : `<button class="btn btn-secondary btn-sm ds-act-btn" data-path="${escapeHtml(d.path)}">${t("dataset.activate")}</button>`}
+            <button class="btn btn-ghost btn-sm ds-pipe-btn" data-path="${escapeHtml(d.path)}">${t("pipeline.run")}</button>
+          </div>
         </div>`).join("");
       $$(".ds-pipe-btn").forEach(b => b.addEventListener("click", () => {
         $("#pipe-ds").value = b.dataset.path;
         runPipeline();
+      }));
+      $$(".ds-act-btn").forEach(b => b.addEventListener("click", async () => {
+        try {
+          const out = await api("/dataset/activate", { method: "POST", body: { dataset: b.dataset.path } });
+          toast(t("dataset.uploaded"), "success");
+          if ((out.new_diagnoses || []).length) {
+            toast(`+${out.new_diagnoses.length}: ${out.new_diagnoses.slice(0, 4).join(", ")}`, "info");
+          }
+          await Promise.all([loadDsList(), refreshNotifications()]);
+        } catch (e) {
+          toast(e.message, "error");
+        }
       }));
     } catch (e) {
       $("#ds-list").innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
@@ -1714,8 +1890,9 @@
       });
     }
 
-    // ── Topbar dropdowns (settings / account) ───────────────────────────
+    // ── Topbar dropdowns (settings / account / notifications) ───────────
     initTopbarMenus();
+    bindNotificationActions();
 
     // ── Appearance toggles (compact + sidebar collapse) ─────────────────
     const compactOpt = $("#opt-compact");

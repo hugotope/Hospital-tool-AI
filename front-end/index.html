@@ -118,10 +118,31 @@
             <span id="api-status-text">&hellip;</span>
           </div>
 
-          <button class="topbar-icon-btn" title="Notifications">
-            <span class="material-symbols-outlined">notifications_active</span>
-            <span class="notif-dot"></span>
-          </button>
+          <!-- Notifications dropdown -->
+          <div class="tb-menu" id="notif-menu">
+            <button class="topbar-icon-btn" id="notif-btn" data-i18n-title="notif.tooltip"
+                    title="Notificaciones" aria-haspopup="true" aria-expanded="false">
+              <span class="material-symbols-outlined">notifications_active</span>
+              <span class="notif-dot hidden" id="notif-dot"></span>
+              <span class="notif-count hidden" id="notif-count">0</span>
+            </button>
+            <div class="tb-menu-panel tb-menu-panel-md" id="notif-panel" role="menu" hidden>
+              <div class="tb-menu-header">
+                <span class="material-symbols-outlined">notifications</span>
+                <div>
+                  <div class="tb-menu-title" data-i18n="notif.title">Notificaciones</div>
+                  <div class="tb-menu-sub" id="notif-sub" data-i18n="notif.empty">No hay notificaciones nuevas.</div>
+                </div>
+              </div>
+              <div class="notif-actions">
+                <button class="btn btn-ghost btn-sm" id="notif-mark-all" data-i18n="notif.markAll">Marcar todas como leidas</button>
+                <button class="btn btn-ghost btn-sm" id="notif-clear" data-i18n="notif.clear">Borrar historial</button>
+              </div>
+              <div class="notif-list" id="notif-list">
+                <div class="empty"><div class="spinner"></div></div>
+              </div>
+            </div>
+          </div>
 
           <!-- Settings dropdown -->
           <div class="tb-menu" id="settings-menu">

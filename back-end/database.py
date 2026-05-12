@@ -106,6 +106,21 @@ def init_db() -> None:
                 created_at    TEXT    DEFAULT (datetime('now')),
                 updated_at    TEXT    DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS notifications (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                level        TEXT    NOT NULL DEFAULT 'info',
+                source       TEXT    NOT NULL DEFAULT 'system',
+                title        TEXT    NOT NULL,
+                message      TEXT    DEFAULT '',
+                meta         TEXT    DEFAULT '',
+                is_read      INTEGER DEFAULT 0,
+                created_at   TEXT    DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_created
+                ON notifications(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_notifications_unread
+                ON notifications(is_read, created_at DESC);
         """)
         # Seed default admin
         if not conn.execute("SELECT id FROM users WHERE username='admin'").fetchone():
@@ -113,21 +128,174 @@ def init_db() -> None:
                 "INSERT INTO users (username,name,email,password_hash,role) VALUES (?,?,?,?,?)",
                 ("admin", "Administrador", "admin@hospital.com", hash_password("1234"), "admin"),
             )
-        # Seed base doctors
-        if not conn.execute("SELECT id FROM doctors LIMIT 1").fetchone():
-            conn.executemany(
+        _seed_default_doctors(conn)
+        conn.commit()
+
+
+# ── Doctores por defecto (cubriendo las 10 enfermedades del dataset original
+#    + las 10 enfermedades del dataset extendido) ─────────────────────────────
+
+DEFAULT_DOCTOR_ROSTER: list[tuple[str, str, str, str, str, str]] = [
+    # name, specialty, zone, email, phone, shift
+    ("Dr. Andres Morales",     "Cardiologia",       "Cardiologia",       "andres.morales@hospital.com",   "+34 600 100 100", "Manana"),
+    ("Dra. Laura Castillo",    "Cardiologia",       "Cardiologia",       "laura.castillo@hospital.com",   "+34 600 100 101", "Tarde"),
+    ("Dr. Javier Rojas",       "Neurologia",        "Neurologia",        "javier.rojas@hospital.com",     "+34 600 100 102", "Noche"),
+    ("Dra. Sofia Ibanez",      "Neumologia",        "Neumologia",        "sofia.ibanez@hospital.com",     "+34 600 100 103", "Manana"),
+    ("Dr. Miguel Torres",      "Infectologia",      "Infectologia",      "miguel.torres@hospital.com",    "+34 600 100 104", "Tarde"),
+    ("Dra. Daniela Paredes",   "Endocrinologia",    "Endocrinologia",    "daniela.paredes@hospital.com",  "+34 600 100 105", "Manana"),
+    ("Dr. Ricardo Mendez",     "Nefrologia",        "Nefrologia",        "ricardo.mendez@hospital.com",   "+34 600 100 106", "Tarde"),
+    ("Dra. Paula Jimenez",     "Hepatologia",       "Hepatologia",       "paula.jimenez@hospital.com",    "+34 600 100 107", "Manana"),
+    ("Dr. Sebastian Vega",     "Oncologia",         "Oncologia",         "sebastian.vega@hospital.com",   "+34 600 100 108", "Tarde"),
+    ("Dra. Valeria Nunez",     "Salud Mental",      "Salud Mental",      "valeria.nunez@hospital.com",    "+34 600 100 109", "Manana"),
+    ("Dr. Hector Salazar",     "Neumologia",        "Neumologia",        "hector.salazar@hospital.com",   "+34 600 100 110", "Noche"),
+    ("Dra. Carolina Lopez",    "Reumatologia",      "Reumatologia",      "carolina.lopez@hospital.com",   "+34 600 100 111", "Manana"),
+    ("Dr. Alberto Ramos",      "Traumatologia",     "Traumatologia",     "alberto.ramos@hospital.com",    "+34 600 100 112", "Tarde"),
+    ("Dra. Marta Solis",       "Dermatologia",      "Dermatologia",      "marta.solis@hospital.com",      "+34 600 100 113", "Manana"),
+    ("Dr. Joaquin Pereira",    "Gastroenterologia", "Gastroenterologia", "joaquin.pereira@hospital.com",  "+34 600 100 114", "Tarde"),
+    ("Dra. Elena Cabrera",     "Hematologia",       "Hematologia",       "elena.cabrera@hospital.com",    "+34 600 100 115", "Manana"),
+    ("Dra. Beatriz Ortega",    "Salud Mental",      "Salud Mental",      "beatriz.ortega@hospital.com",   "+34 600 100 116", "Tarde"),
+    ("Dr. Julio Fernandez",    "Neurologia",        "Neurologia",        "julio.fernandez@hospital.com",  "+34 600 100 117", "Manana"),
+]
+
+
+def _seed_default_doctors(conn: sqlite3.Connection) -> None:
+    """Asegura que existan los doctores base sin duplicar entradas previas."""
+    existing = {
+        (row["name"].strip().lower(), row["specialty"].strip().lower())
+        for row in conn.execute("SELECT name, specialty FROM doctors").fetchall()
+    }
+    pending = [
+        (name, specialty, zone, email, phone, shift, "")
+        for (name, specialty, zone, email, phone, shift) in DEFAULT_DOCTOR_ROSTER
+        if (name.lower(), specialty.lower()) not in existing
+    ]
+    if not pending:
+        return
+    conn.executemany(
+        """
+        INSERT INTO doctors (name, specialty, zone, email, phone, shift, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        pending,
+    )
+
+
+def ensure_default_doctors() -> int:
+    """Re-aplica el seed de doctores; devuelve cuantos se insertaron."""
+    with get_connection() as conn:
+        before = conn.execute("SELECT COUNT(*) AS c FROM doctors").fetchone()["c"]
+        _seed_default_doctors(conn)
+        conn.commit()
+        after = conn.execute("SELECT COUNT(*) AS c FROM doctors").fetchone()["c"]
+        return max(0, after - before)
+
+
+def find_doctor_by_zone(zone: str) -> Optional[dict]:
+    """Busca un doctor activo cuya zona coincide (case-insensitive)."""
+    z = (zone or "").strip().lower()
+    if not z:
+        return None
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM doctors
+            WHERE is_active = 1 AND lower(zone) = ?
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (z,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications (eventos del sistema visibles en la campana)
+# ─────────────────────────────────────────────────────────────────────────────
+
+ALLOWED_NOTIF_LEVELS = {"info", "success", "warning", "error"}
+
+
+def add_notification(
+    title: str,
+    message: str = "",
+    level: str = "info",
+    source: str = "system",
+    meta: str = "",
+) -> dict:
+    if level not in ALLOWED_NOTIF_LEVELS:
+        level = "info"
+    title = (title or "").strip()[:240] or "Notificacion"
+    message = (message or "").strip()[:4000]
+    source = (source or "system").strip()[:80] or "system"
+    meta = (meta or "").strip()[:2000]
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO notifications (level, source, title, message, meta)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (level, source, title, message, meta),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM notifications ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else {}
+
+
+def list_notifications(limit: int = 30, only_unread: bool = False) -> list[dict]:
+    limit = max(1, min(int(limit or 30), 200))
+    with get_connection() as conn:
+        if only_unread:
+            rows = conn.execute(
                 """
-                INSERT INTO doctors (name, specialty, zone, email, phone, shift, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                SELECT * FROM notifications
+                WHERE is_read = 0
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
                 """,
-                [
-                    ("Dr. Andres Morales", "Cardiologia", "Cardiologia", "andres.morales@hospital.com", "+34 600 100 100", "Manana", ""),
-                    ("Dra. Laura Castillo", "Cardiologia", "Cardiologia", "laura.castillo@hospital.com", "+34 600 100 101", "Tarde", ""),
-                    ("Dr. Javier Rojas", "Neurologia", "Neurologia", "javier.rojas@hospital.com", "+34 600 100 102", "Noche", ""),
-                    ("Dra. Sofia Ibanez", "Neumologia", "Neumologia", "sofia.ibanez@hospital.com", "+34 600 100 103", "Manana", ""),
-                ],
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM notifications
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def count_unread_notifications() -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM notifications WHERE is_read = 0"
+        ).fetchone()
+        return int(row["c"]) if row else 0
+
+
+def mark_notifications_read(ids: list[int] | None = None) -> int:
+    """Si ids es None, marca todas como leidas. Devuelve filas afectadas."""
+    with get_connection() as conn:
+        if not ids:
+            cur = conn.execute("UPDATE notifications SET is_read = 1 WHERE is_read = 0")
+        else:
+            placeholders = ",".join("?" for _ in ids)
+            cur = conn.execute(
+                f"UPDATE notifications SET is_read = 1 WHERE id IN ({placeholders})",
+                tuple(int(x) for x in ids),
             )
         conn.commit()
+        return cur.rowcount or 0
+
+
+def clear_notifications() -> int:
+    with get_connection() as conn:
+        cur = conn.execute("DELETE FROM notifications")
+        conn.commit()
+        return cur.rowcount or 0
 
 
 def _normalize_term(value: str) -> str:

@@ -17,6 +17,8 @@ Endpoints:
             POST /api/ai/classify-risk
             GET  /api/ai/model-info
             POST /api/translate/symptoms
+            GET  /api/notifications
+            POST /api/notifications/read
 
   Admin   : GET  /api/users
             POST /api/users
@@ -28,6 +30,7 @@ Endpoints:
 from __future__ import annotations
 
 import csv
+import json
 import os
 import subprocess
 import sys
@@ -64,6 +67,7 @@ DATASET_PATH = ROOT_DIR / "healthcare_dataset_100k.csv"
 TRAIN_SCRIPT = ROOT_DIR / "models-ia" / "train_spark.py"
 UPLOAD_DIR = ROOT_DIR / "uploaded_datasets"
 UPLOAD_DIR.mkdir(exist_ok=True)
+ACTIVE_DATASET_FILE = UPLOAD_DIR / ".active_dataset"
 
 _training_status: dict = {
     "running": False,
@@ -74,7 +78,66 @@ _training_status: dict = {
 
 # ── Init DB and models on startup ────────────────────────────────────────────
 db.init_db()
+db.ensure_default_doctors()
 predictor.load()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Active dataset selection
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _read_active_dataset_pointer() -> Path | None:
+    try:
+        if not ACTIVE_DATASET_FILE.exists():
+            return None
+        # Tolerante a BOM (utf-8-sig) y CR/LF en el path persistido.
+        raw = ACTIVE_DATASET_FILE.read_text(encoding="utf-8-sig").strip()
+        raw = raw.lstrip("\ufeff").strip().strip('"').strip("'")
+        if not raw:
+            return None
+        candidate = Path(raw).expanduser().resolve()
+        if candidate.exists() and candidate.suffix.lower() == ".csv":
+            return candidate
+    except Exception:
+        return None
+    return None
+
+
+def _write_active_dataset_pointer(path: Path | None) -> None:
+    try:
+        if path is None:
+            ACTIVE_DATASET_FILE.unlink(missing_ok=True)
+        else:
+            ACTIVE_DATASET_FILE.write_text(str(path.resolve()), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def active_dataset_path() -> Path:
+    """
+    Devuelve el dataset activo con la siguiente prioridad:
+      1. El apuntado explicitamente por `.active_dataset` (si existe).
+      2. El CSV mas reciente subido en `uploaded_datasets/`.
+      3. El dataset principal por defecto.
+    """
+    pointer = _read_active_dataset_pointer()
+    if pointer is not None:
+        return pointer
+    try:
+        candidates = sorted(UPLOAD_DIR.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            return candidates[0].resolve()
+    except Exception:
+        pass
+    return DATASET_PATH
+
+
+def _is_dataset_path_allowed(candidate: Path) -> bool:
+    candidate = candidate.resolve()
+    return any(
+        str(candidate).startswith(str(root.resolve()))
+        for root in (ROOT_DIR, UPLOAD_DIR)
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -290,11 +353,10 @@ def _resolve_training_dataset(data: dict) -> Path:
         else:
             candidate = UPLOAD_DIR / dataset_name
     else:
-        candidate = DATASET_PATH
+        candidate = active_dataset_path()
 
     candidate = candidate.resolve()
-    allowed_roots = [ROOT_DIR.resolve(), UPLOAD_DIR.resolve()]
-    if not any(str(candidate).startswith(str(root)) for root in allowed_roots):
+    if not _is_dataset_path_allowed(candidate):
         raise ValueError("Dataset no permitido.")
     if not candidate.exists() or candidate.suffix.lower() != ".csv":
         raise ValueError("Dataset no encontrado o formato no valido.")
@@ -309,6 +371,12 @@ def _run_training(dataset_path: Path) -> None:
         "last_error": None,
         "dataset": str(dataset_path),
     })
+    _notify(
+        "info",
+        "Entrenamiento iniciado",
+        f"Reentrenando con {dataset_path.name}.",
+        source="training",
+    )
     try:
         result = subprocess.run(
             [sys.executable, str(TRAIN_SCRIPT), "--dataset", str(dataset_path)],
@@ -317,53 +385,155 @@ def _run_training(dataset_path: Path) -> None:
         if result.returncode == 0:
             predictor.reload()
             _training_status["last_result"] = "ok"
+            _invalidate_diseases_cache()
+            _notify(
+                "success",
+                "Entrenamiento completado",
+                f"Modelo actualizado con {dataset_path.name}.",
+                source="training",
+            )
         else:
             error_output = (result.stderr or "").strip()
             if not error_output:
                 # Algunas fallas de Spark/Python salen por stdout.
                 error_output = (result.stdout or "").strip()
             _training_status["last_error"] = (error_output or "Error desconocido")[-4000:]
+            _notify(
+                "error",
+                "Fallo en el entrenamiento",
+                _training_status["last_error"][-600:],
+                source="training",
+                meta={"dataset": dataset_path.name, "returncode": result.returncode},
+            )
     except subprocess.TimeoutExpired:
         _training_status["last_error"] = "Timeout: el entrenamiento superó 15 minutos."
+        _notify("error", "Entrenamiento detenido por timeout",
+                "El entrenamiento superó 15 minutos y fue cancelado.",
+                source="training",
+                meta={"dataset": dataset_path.name})
     except Exception as exc:
         _training_status["last_error"] = str(exc)
+        _notify("error", "Excepcion durante el entrenamiento",
+                str(exc), source="training",
+                meta={"dataset": dataset_path.name})
     finally:
         _training_status["running"] = False
 
 
+def _start_training_async(dataset_path: Path) -> bool:
+    """Lanza el entrenamiento en hilo si no hay otro corriendo."""
+    if _training_status.get("running"):
+        return False
+    if not TRAIN_SCRIPT.exists():
+        _notify("error", "Script de entrenamiento no encontrado", str(TRAIN_SCRIPT),
+                source="training")
+        return False
+    threading.Thread(target=_run_training, args=(dataset_path,), daemon=True).start()
+    return True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Diseases cache
+# Diseases cache + assignments
 # ─────────────────────────────────────────────────────────────────────────────
 
-_diseases_cache: list | None = None
+_diseases_cache: dict[str, list] = {}
 
 DIAGNOSIS_ASSIGNMENTS: dict[str, dict[str, str]] = {
-    "Heart Disease": {"zone": "Cardiologia", "doctor": "Dr. Andres Morales (Cardiologo)"},
-    "Hypertension": {"zone": "Cardiologia", "doctor": "Dra. Laura Castillo (Cardiologa)"},
-    "Stroke": {"zone": "Neurologia", "doctor": "Dr. Javier Rojas (Neurologo)"},
-    "Asthma": {"zone": "Neumologia", "doctor": "Dra. Sofia Ibanez (Neumologa)"},
-    "COVID-19": {"zone": "Infectologia", "doctor": "Dr. Miguel Torres (Infectologo)"},
-    "Diabetes": {"zone": "Endocrinologia", "doctor": "Dra. Daniela Paredes (Endocrina)"},
-    "Kidney Disease": {"zone": "Nefrologia", "doctor": "Dr. Ricardo Mendez (Nefrologo)"},
-    "Liver Disease": {"zone": "Hepatologia", "doctor": "Dra. Paula Jimenez (Hepatologa)"},
-    "Cancer": {"zone": "Oncologia", "doctor": "Dr. Sebastian Vega (Oncologo)"},
-    "Depression": {"zone": "Salud Mental", "doctor": "Dra. Valeria Nunez (Psiquiatra)"},
+    # Dataset original
+    "Heart Disease":   {"zone": "Cardiologia",       "doctor": "Dr. Andres Morales (Cardiologo)"},
+    "Hypertension":    {"zone": "Cardiologia",       "doctor": "Dra. Laura Castillo (Cardiologa)"},
+    "Stroke":          {"zone": "Neurologia",        "doctor": "Dr. Javier Rojas (Neurologo)"},
+    "Asthma":          {"zone": "Neumologia",        "doctor": "Dra. Sofia Ibanez (Neumologa)"},
+    "COVID-19":        {"zone": "Infectologia",      "doctor": "Dr. Miguel Torres (Infectologo)"},
+    "Diabetes":        {"zone": "Endocrinologia",    "doctor": "Dra. Daniela Paredes (Endocrina)"},
+    "Kidney Disease":  {"zone": "Nefrologia",        "doctor": "Dr. Ricardo Mendez (Nefrologo)"},
+    "Liver Disease":   {"zone": "Hepatologia",       "doctor": "Dra. Paula Jimenez (Hepatologa)"},
+    "Cancer":          {"zone": "Oncologia",         "doctor": "Dr. Sebastian Vega (Oncologo)"},
+    "Depression":      {"zone": "Salud Mental",      "doctor": "Dra. Valeria Nunez (Psiquiatra)"},
+    # Dataset extendido v2
+    "Pneumonia":       {"zone": "Neumologia",        "doctor": "Dr. Hector Salazar (Neumologo)"},
+    "Bronchitis":      {"zone": "Neumologia",        "doctor": "Dra. Sofia Ibanez (Neumologa)"},
+    "Migraine":        {"zone": "Neurologia",        "doctor": "Dr. Julio Fernandez (Neurologo)"},
+    "Anxiety Disorder":{"zone": "Salud Mental",      "doctor": "Dra. Beatriz Ortega (Psicologa)"},
+    "Arthritis":       {"zone": "Reumatologia",      "doctor": "Dra. Carolina Lopez (Reumatologa)"},
+    "Osteoporosis":    {"zone": "Traumatologia",     "doctor": "Dr. Alberto Ramos (Traumatologo)"},
+    "Dermatitis":      {"zone": "Dermatologia",      "doctor": "Dra. Marta Solis (Dermatologa)"},
+    "Gastroenteritis": {"zone": "Gastroenterologia", "doctor": "Dr. Joaquin Pereira (Gastroenterologo)"},
+    "Anemia":          {"zone": "Hematologia",       "doctor": "Dra. Elena Cabrera (Hematologa)"},
+    "Thyroid Disorder":{"zone": "Endocrinologia",    "doctor": "Dra. Daniela Paredes (Endocrina)"},
 }
 
 
+# Heuristica por palabras clave para enfermedades nuevas no mapeadas
+_KEYWORD_ZONES: list[tuple[tuple[str, ...], str]] = [
+    (("heart", "cardiac", "hyperten", "tachy", "arrhyth"), "Cardiologia"),
+    (("stroke", "migraine", "neuro", "epilep", "alzheimer", "parkinson"), "Neurologia"),
+    (("asthma", "pneumon", "bronch", "copd", "lung", "respirat"), "Neumologia"),
+    (("covid", "infect", "sepsis", "tuberc", "hepatitis"), "Infectologia"),
+    (("diabet", "thyroid", "endocrine", "hormone"), "Endocrinologia"),
+    (("kidney", "renal", "nephr"), "Nefrologia"),
+    (("liver", "hepat", "cirrhos"), "Hepatologia"),
+    (("cancer", "tumor", "neoplas", "leukem", "lymphom", "melanom"), "Oncologia"),
+    (("depress", "anxiety", "psych", "bipolar", "schizo", "panic"), "Salud Mental"),
+    (("arthrit", "lupus", "reumat"), "Reumatologia"),
+    (("osteopor", "fracture", "trauma", "orthoped"), "Traumatologia"),
+    (("derma", "skin", "eczema", "psoria", "acne", "rash"), "Dermatologia"),
+    (("gastr", "colitis", "ulcer", "ibs", "crohn"), "Gastroenterologia"),
+    (("anemia", "leukem", "blood", "thrombo", "hemato"), "Hematologia"),
+]
+
+
+def _zone_from_keywords(diagnosis: str) -> str | None:
+    name = (diagnosis or "").strip().lower()
+    if not name:
+        return None
+    for keywords, zone in _KEYWORD_ZONES:
+        if any(k in name for k in keywords):
+            return zone
+    return None
+
+
 def assign_hospital_resources(diagnosis: str) -> dict[str, str]:
-    return DIAGNOSIS_ASSIGNMENTS.get(
-        diagnosis,
-        {"zone": "Medicina General", "doctor": "Dr. Equipo de Guardia"},
-    )
+    """
+    Resuelve zona y medico para un diagnostico:
+      1. Mapeo explicito en DIAGNOSIS_ASSIGNMENTS.
+      2. Heuristica por palabras clave en el nombre.
+      3. Fallback a Medicina General.
+    Si la zona resuelta tiene un doctor activo en BD, lo prioriza.
+    """
+    if diagnosis in DIAGNOSIS_ASSIGNMENTS:
+        assignment = dict(DIAGNOSIS_ASSIGNMENTS[diagnosis])
+    else:
+        zone = _zone_from_keywords(diagnosis) or "Medicina General"
+        assignment = {"zone": zone, "doctor": "Dr. Equipo de Guardia"}
+
+    try:
+        doc = db.find_doctor_by_zone(assignment["zone"])
+        if doc and doc.get("name"):
+            assignment["doctor"] = (
+                f"{doc['name']} ({doc.get('specialty') or assignment['zone']})"
+            )
+    except Exception:
+        pass
+
+    return assignment
 
 
-def _build_diseases_cache() -> list:
-    global _diseases_cache
-    if _diseases_cache is not None:
-        return _diseases_cache
+def _build_diseases_cache(dataset_path: Path | None = None) -> list:
+    """
+    Construye (o devuelve cacheado) el resumen de enfermedades a partir de
+    un CSV concreto. La cache es por path para soportar varios datasets.
+    """
+    path = (dataset_path or active_dataset_path()).resolve()
+    cache_key = str(path)
+    cached = _diseases_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    if not path.exists():
+        return []
+
     diseases: dict = {}
-    with DATASET_PATH.open(encoding="utf-8") as f:
+    with path.open(encoding="utf-8") as f:
         for row in csv.DictReader(f):
             d = row.get("Diagnosis", "").strip()
             if not d:
@@ -394,8 +564,53 @@ def _build_diseases_cache() -> list:
             "gender_distribution": data["genders"],
         })
     result.sort(key=lambda x: x["count"], reverse=True)
-    _diseases_cache = result
+    _diseases_cache[cache_key] = result
     return result
+
+
+def _invalidate_diseases_cache(dataset_path: Path | None = None) -> None:
+    if dataset_path is None:
+        _diseases_cache.clear()
+    else:
+        _diseases_cache.pop(str(dataset_path.resolve()), None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _notify(level: str, title: str, message: str = "", source: str = "system",
+            meta: dict | None = None) -> None:
+    """Inserta una notificacion sin romper el flujo si la BD falla."""
+    try:
+        meta_str = json.dumps(meta, ensure_ascii=False) if meta else ""
+        db.add_notification(title=title, message=message, level=level,
+                            source=source, meta=meta_str)
+    except Exception:
+        pass
+
+
+def _detect_new_diagnoses(dataset_path: Path) -> list[str]:
+    """
+    Compara los diagnosticos del dataset con los que el modelo conoce.
+    Devuelve los que NO estaban en el modelo entrenado.
+    """
+    try:
+        info = predictor.get_model_info() or {}
+        known = {str(x).strip() for x in (info.get("disease_classes") or [])}
+        if not dataset_path.exists():
+            return []
+        seen: set[str] = set()
+        with dataset_path.open(encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                d = (row.get("Diagnosis") or "").strip()
+                if d:
+                    seen.add(d)
+        if not known:
+            return sorted(seen)
+        return sorted(seen - known)
+    except Exception:
+        return []
 
 
 def _parse_symptoms(raw_value) -> list[str]:
@@ -473,56 +688,105 @@ def me():
 def dataset_preview():
     max_rows = request.args.get("rows", default=15, type=int)
     max_rows = max(1, min(max_rows, 100))
-    if not DATASET_PATH.exists():
+    target = active_dataset_path()
+    if not target.exists():
         return jsonify({"error": "Dataset no encontrado."}), 404
-    with DATASET_PATH.open(encoding="utf-8", newline="") as f:
+    with target.open(encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
         headers = next(reader, [])
         rows = [row for _, row in zip(range(max_rows), reader)]
-    return jsonify({"headers": headers, "rows": rows, "total_shown": len(rows)}), 200
+    return jsonify({
+        "dataset": target.name,
+        "headers": headers,
+        "rows": rows,
+        "total_shown": len(rows),
+    }), 200
 
 
 @app.get("/api/dataset/stats")
 @require_auth
 def dataset_stats():
-    if not DATASET_PATH.exists():
+    target = active_dataset_path()
+    if not target.exists():
         return jsonify({"error": "Dataset no encontrado."}), 404
     diagnoses: dict = {}
     genders: dict = {}
     total = 0
-    with DATASET_PATH.open(encoding="utf-8") as f:
+    with target.open(encoding="utf-8") as f:
         for row in csv.DictReader(f):
             total += 1
             d = row.get("Diagnosis", "Unknown")
             g = row.get("Gender", "Unknown")
             diagnoses[d] = diagnoses.get(d, 0) + 1
             genders[g] = genders.get(g, 0) + 1
-    return jsonify({"total": total, "diagnoses": diagnoses, "genders": genders}), 200
+    return jsonify({
+        "dataset": target.name,
+        "total": total,
+        "diagnoses": diagnoses,
+        "genders": genders,
+    }), 200
 
 
 @app.get("/api/dataset/list")
 @require_auth
 def dataset_list():
     datasets = []
-    # Main dataset
+    active = active_dataset_path().resolve()
+    seen_paths: set[str] = set()
+
+    def _push(path: Path, kind: str) -> None:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return
+        resolved = str(path.resolve())
+        if resolved in seen_paths:
+            return
+        seen_paths.add(resolved)
+        datasets.append({
+            "name": path.name,
+            "path": str(path),
+            "size_kb": round(stat.st_size / 1024),
+            "type": kind,
+            "active": resolved == str(active),
+        })
+
     if DATASET_PATH.exists():
-        stat = DATASET_PATH.stat()
-        datasets.append({
-            "name": DATASET_PATH.name,
-            "path": str(DATASET_PATH),
-            "size_kb": round(stat.st_size / 1024),
-            "type": "main",
-        })
-    # Uploaded datasets
+        _push(DATASET_PATH, "main")
     for f in sorted(UPLOAD_DIR.glob("*.csv")):
-        stat = f.stat()
-        datasets.append({
-            "name": f.name,
-            "path": str(f),
-            "size_kb": round(stat.st_size / 1024),
-            "type": "uploaded",
-        })
-    return jsonify({"datasets": datasets}), 200
+        _push(f, "uploaded")
+
+    return jsonify({"datasets": datasets, "active": str(active)}), 200
+
+
+@app.post("/api/dataset/activate")
+@require_auth
+def dataset_activate():
+    data = request.get_json(silent=True) or {}
+    try:
+        target = _resolve_training_dataset(data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    _write_active_dataset_pointer(target)
+    _invalidate_diseases_cache()
+    new_dx = _detect_new_diagnoses(target)
+    if new_dx:
+        _notify(
+            "warning",
+            "Nuevas enfermedades detectadas",
+            "El dataset activo contiene diagnosticos no presentes en el modelo: "
+            + ", ".join(new_dx[:8])
+            + (" (+ mas)" if len(new_dx) > 8 else "")
+            + ". Reentrena el modelo para que los reconozca.",
+            source="dataset",
+            meta={"diagnoses": new_dx, "dataset": target.name},
+        )
+    return jsonify({
+        "message": "Dataset activo actualizado.",
+        "active": str(target),
+        "new_diagnoses": new_dx,
+    }), 200
 
 
 @app.post("/api/dataset/upload")
@@ -556,10 +820,45 @@ def dataset_upload():
         filepath.unlink(missing_ok=True)
         return jsonify({"error": f"Error al leer el archivo: {exc}"}), 400
 
+    # Activate dataset and detect new diagnoses
+    _write_active_dataset_pointer(filepath)
+    _invalidate_diseases_cache()
+    new_dx = _detect_new_diagnoses(filepath)
+
+    auto_train_param = (request.args.get("auto_train")
+                        or request.form.get("auto_train")
+                        or "").strip().lower()
+    auto_train = auto_train_param not in ("0", "false", "no", "off")
+    training_started = False
+    if auto_train:
+        training_started = _start_training_async(filepath)
+
+    if new_dx:
+        _notify(
+            "warning",
+            "Nuevas enfermedades detectadas",
+            f"{filepath.name} introduce {len(new_dx)} diagnosticos nuevos: "
+            + ", ".join(new_dx[:8])
+            + (" (+ mas)" if len(new_dx) > 8 else ""),
+            source="dataset",
+            meta={"diagnoses": new_dx, "dataset": filepath.name,
+                  "auto_train": training_started},
+        )
+    _notify(
+        "info",
+        "Dataset subido",
+        f"{filepath.name} ({row_count} filas) activado como dataset principal.",
+        source="dataset",
+        meta={"dataset": filepath.name, "rows": row_count},
+    )
+
     return jsonify({
-        "message": "Dataset subido exitosamente.",
+        "message": "Dataset subido y activado.",
         "filename": safe_name,
         "rows": row_count,
+        "new_diagnoses": new_dx,
+        "active": True,
+        "training_started": training_started,
     }), 200
 
 
@@ -567,11 +866,62 @@ def dataset_upload():
 # Diseases endpoint
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _aggregate_diseases_from_datasets() -> list[dict]:
+    """
+    Combina las enfermedades del dataset principal y del dataset activo
+    (uploaded). Asi tras subir un CSV nuevo, las nuevas enfermedades aparecen
+    inmediatamente en la pestana 'Enfermedades' aunque el modelo aun no se haya
+    reentrenado.
+    """
+    paths: list[Path] = []
+    if DATASET_PATH.exists():
+        paths.append(DATASET_PATH)
+    active = active_dataset_path()
+    if active.exists() and active.resolve() != DATASET_PATH.resolve():
+        paths.append(active)
+
+    merged: dict[str, dict] = {}
+    for path in paths:
+        for item in _build_diseases_cache(path):
+            key = item.get("name", "").strip().lower()
+            if not key:
+                continue
+            if key not in merged:
+                merged[key] = {
+                    "name": item.get("name"),
+                    "count": item.get("count", 0),
+                    "common_symptoms": list(item.get("common_symptoms") or []),
+                    "avg_age": item.get("avg_age", 0),
+                    "gender_distribution": dict(item.get("gender_distribution") or {}),
+                    "sources": [path.name],
+                }
+            else:
+                current = merged[key]
+                current["count"] = (current.get("count") or 0) + (item.get("count") or 0)
+                seen = {s.lower(): s for s in current.get("common_symptoms", [])}
+                for sym in item.get("common_symptoms") or []:
+                    if sym.lower() not in seen:
+                        seen[sym.lower()] = sym
+                current["common_symptoms"] = list(seen.values())[:12]
+                # Edad media ponderada aproximada
+                a1 = current.get("avg_age") or 0
+                a2 = item.get("avg_age") or 0
+                if a1 and a2:
+                    current["avg_age"] = round((a1 + a2) / 2)
+                else:
+                    current["avg_age"] = a1 or a2
+                gd = current.setdefault("gender_distribution", {})
+                for g, c in (item.get("gender_distribution") or {}).items():
+                    gd[g] = gd.get(g, 0) + c
+                current.setdefault("sources", []).append(path.name)
+    return list(merged.values())
+
+
 @app.get("/api/diseases")
 @require_auth
 def get_diseases():
     try:
-        dataset_diseases = _build_diseases_cache() if DATASET_PATH.exists() else []
+        dataset_diseases = _aggregate_diseases_from_datasets()
         manual_diseases = db.list_manual_diseases()
         merged: dict[str, dict] = {}
 
@@ -597,6 +947,17 @@ def get_diseases():
                 manual_item["manual"] = True
                 merged[key] = manual_item
 
+        # Marca enfermedades nuevas (no incluidas en el modelo actual)
+        try:
+            info = predictor.get_model_info() or {}
+            known = {str(x).strip().lower() for x in (info.get("disease_classes") or [])}
+        except Exception:
+            known = set()
+        for item in merged.values():
+            name = (item.get("name") or "").strip().lower()
+            if name and known and name not in known:
+                item["new_for_model"] = True
+
         result = sorted(
             merged.values(),
             key=lambda x: (-(x.get("count") or 0), x.get("name", "")),
@@ -611,15 +972,52 @@ def get_diseases():
 def get_symptoms_bank():
     try:
         saved = {s.lower(): s for s in db.list_symptoms()}
-        if DATASET_PATH.exists():
-            for item in _build_diseases_cache():
-                for sym in item.get("common_symptoms", []):
-                    key = str(sym or "").strip().lower()
-                    if key and key not in saved:
-                        saved[key] = str(sym).strip()
+        for item in _aggregate_diseases_from_datasets():
+            for sym in item.get("common_symptoms", []):
+                key = str(sym or "").strip().lower()
+                if key and key not in saved:
+                    saved[key] = str(sym).strip()
         return jsonify({"symptoms": sorted(saved.values(), key=lambda x: x.lower())}), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notifications endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/notifications")
+@require_auth
+def list_notifications_endpoint():
+    limit = request.args.get("limit", default=30, type=int)
+    only_unread = (request.args.get("unread", "").strip().lower()
+                   in ("1", "true", "yes"))
+    items = db.list_notifications(limit=limit, only_unread=only_unread)
+    unread = db.count_unread_notifications()
+    return jsonify({"notifications": items, "unread": unread}), 200
+
+
+@app.post("/api/notifications/read")
+@require_auth
+def mark_notifications_read_endpoint():
+    data = request.get_json(silent=True) or {}
+    raw_ids = data.get("ids")
+    ids: list[int] = []
+    if isinstance(raw_ids, list):
+        for x in raw_ids:
+            try:
+                ids.append(int(x))
+            except Exception:
+                continue
+    affected = db.mark_notifications_read(ids if ids else None)
+    return jsonify({"updated": affected, "unread": db.count_unread_notifications()}), 200
+
+
+@app.delete("/api/notifications")
+@require_auth
+def clear_notifications_endpoint():
+    removed = db.clear_notifications()
+    return jsonify({"deleted": removed, "unread": 0}), 200
 
 
 @app.post("/api/diseases")
@@ -711,7 +1109,7 @@ def analyze():
                 risk_confidence=float(risk.get("confidence", 0)),
                 hospital_zone=assignment["zone"],
                 specialist_doctor=assignment["doctor"],
-                source_dataset=DATASET_PATH.name,
+                source_dataset=active_dataset_path().name,
                 created_by=request.session.get("username", ""),
             )
             patient_id = patient["id"]
@@ -868,14 +1266,16 @@ def analytics_overview():
         eda = {}
 
     dataset_total = 0
-    if DATASET_PATH.exists():
-        with DATASET_PATH.open(encoding="utf-8") as f:
+    target = active_dataset_path()
+    if target.exists():
+        with target.open(encoding="utf-8") as f:
             dataset_total = sum(1 for _ in f) - 1
 
     model_info = predictor.get_model_info()
 
     return jsonify({
         "dataset_total_rows": dataset_total,
+        "active_dataset": target.name,
         "patients_db": eda,
         "model": {
             "loaded": model_info.get("loaded", False),
@@ -898,12 +1298,13 @@ def analytics_patterns():
     Analisis de patrones: co-ocurrencia de sintomas, edad media por
     enfermedad, distribucion por genero.
     """
-    if not DATASET_PATH.exists():
+    target = active_dataset_path()
+    if not target.exists():
         return jsonify({"error": "Dataset no encontrado."}), 404
 
     symptom_pairs: dict = {}
     age_by_disease: dict = {}
-    with DATASET_PATH.open(encoding="utf-8") as f:
+    with target.open(encoding="utf-8") as f:
         for row in csv.DictReader(f):
             syms = sorted({s.strip().lower() for s in row.get("Symptoms", "").split(",") if s.strip()})
             for i in range(len(syms)):
@@ -932,6 +1333,7 @@ def analytics_patterns():
     age_stats.sort(key=lambda x: x["avg_age"])
 
     return jsonify({
+        "active_dataset": target.name,
         "top_symptom_pairs": [{"pair": p, "count": c} for p, c in top_pairs],
         "age_stats_by_diagnosis": age_stats,
     }), 200
@@ -991,8 +1393,26 @@ def dataset_pipeline():
         return jsonify({"error": str(exc)}), 400
     try:
         report = pipeline.run_pipeline(dataset_path, translator=translate_symptoms)
+        if not report.get("ok"):
+            failed_stages = [
+                s.get("stage") for s in report.get("stages", []) if not s.get("ok")
+            ]
+            _notify(
+                "warning",
+                "Pipeline terminado con errores",
+                f"{dataset_path.name}: " + ", ".join(failed_stages or ["fallo desconocido"]),
+                source="pipeline",
+                meta={"dataset": dataset_path.name, "failed": failed_stages},
+            )
         return jsonify(report), 200
     except Exception as exc:
+        _notify(
+            "error",
+            "Excepcion en el pipeline",
+            f"{dataset_path.name}: {exc}",
+            source="pipeline",
+            meta={"dataset": dataset_path.name},
+        )
         return jsonify({"error": f"Error en pipeline: {exc}"}), 500
 
 
@@ -1180,9 +1600,10 @@ _REPORT_TEMPLATE = """<!doctype html>
 def report_view():
     model_info = predictor.get_model_info()
     eda = db.patients_eda()
+    target = active_dataset_path()
     dataset_rows = 0
-    if DATASET_PATH.exists():
-        with DATASET_PATH.open(encoding="utf-8") as f:
+    if target.exists():
+        with target.open(encoding="utf-8") as f:
             dataset_rows = max(0, sum(1 for _ in f) - 1)
 
     def pct(x):
@@ -1191,7 +1612,7 @@ def report_view():
     html = render_template_string(
         _REPORT_TEMPLATE,
         generated_at=__import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M"),
-        dataset_name=DATASET_PATH.name,
+        dataset_name=target.name,
         dataset_rows=f"{dataset_rows:,}",
         model_loaded=model_info.get("loaded", False),
         trained_at=model_info.get("trained_at", "—"),

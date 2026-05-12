@@ -379,10 +379,23 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
   background: var(--c-surface-2); border: 1px solid var(--c-border);
   font-size: 12px; font-family: var(--font-data); color: var(--c-text-muted);
 }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; transition: background .2s, box-shadow .2s; }
 .dot-success { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.18); }
 .dot-warning { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.18); }
-.dot-danger  { background: var(--c-danger); box-shadow: 0 0 0 3px rgba(186,26,26,.18); }
+.dot-danger  {
+  background: var(--c-danger);
+  box-shadow: 0 0 0 3px rgba(186,26,26,.18);
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+.topbar-status.is-offline {
+  border-color: rgba(186,26,26,.45);
+  background: rgba(186,26,26,.06);
+  color: var(--c-danger);
+}
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(186,26,26,.18); }
+  50%      { box-shadow: 0 0 0 6px rgba(186,26,26,.05); }
+}
 
 .lang-select {
   padding: 7px 10px; border: 1px solid var(--c-border);
@@ -400,6 +413,74 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
   position: absolute; top: 8px; right: 8px;
   width: 8px; height: 8px; border-radius: 50%; background: var(--c-danger);
   border: 2px solid var(--c-surface);
+}
+.topbar-icon-btn .notif-count {
+  position: absolute; top: 2px; right: 2px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 10px;
+  background: var(--c-danger); color: #fff;
+  font-size: 10px; font-weight: 800; font-family: var(--font-data);
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--c-surface);
+  line-height: 1;
+}
+.topbar-icon-btn .notif-count.hidden,
+.topbar-icon-btn .notif-dot.hidden { display: none; }
+
+/* Notifications dropdown */
+.tb-menu-panel-md { min-width: 360px; max-width: 400px; padding: 12px; }
+.notif-actions {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 6px 4px 10px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 8px;
+}
+.notif-list {
+  max-height: 400px;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.notif-item {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font-size: 12px;
+  cursor: default;
+}
+.notif-item.unread { background: rgba(14,165,233,.06); border-color: rgba(14,165,233,.32); }
+.notif-item .notif-icon {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Material Symbols Outlined';
+  font-size: 18px;
+}
+.notif-item.level-info    .notif-icon { background: rgba(14,165,233,.15); color: #0ea5e9; }
+.notif-item.level-success .notif-icon { background: rgba(22,163,74,.15);  color: #16a34a; }
+.notif-item.level-warning .notif-icon { background: rgba(245,158,11,.15); color: #d97706; }
+.notif-item.level-error   .notif-icon { background: rgba(186,26,26,.15);  color: var(--c-danger); }
+.notif-item .notif-title  { font-weight: 700; color: var(--c-text); margin-bottom: 2px; }
+.notif-item .notif-msg    { color: var(--c-text-muted); white-space: pre-wrap; word-break: break-word; }
+.notif-item .notif-meta   {
+  display: flex; gap: 8px; align-items: center;
+  margin-top: 6px;
+  color: var(--c-text-subtle);
+  font-family: var(--font-data); font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.notif-item .notif-source {
+  padding: 2px 6px; border-radius: 999px;
+  background: var(--c-surface-2); border: 1px solid var(--c-border);
+}
+.notif-empty {
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--c-text-muted);
+  font-size: 12px;
 }
 .topbar-avatar-btn {
   width: 40px; height: 40px;
@@ -917,6 +998,10 @@ tbody tr:hover { background: var(--c-surface-2); }
   transition: border-color .15s;
 }
 .ds-item:hover { border-color: var(--c-primary); }
+.ds-item.is-active {
+  border-color: rgba(16,185,129,.55);
+  background: rgba(16,185,129,.06);
+}
 .ds-item-icon { font-size: 20px; color: var(--c-text-subtle); }
 .ds-item-info { flex: 1; min-width: 0; }
 .ds-item-name { font-weight: 700; font-size: 13px; font-family: var(--font-display); }
