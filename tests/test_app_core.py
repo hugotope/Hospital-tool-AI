@@ -1,23 +1,32 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from pathlib import Path
 
 import pytest
-
+import psycopg2
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT_DIR / "back-end"
 
 
 @pytest.fixture()
-def app_module(tmp_path, monkeypatch):
+def app_module(monkeypatch):
+    if not os.environ.get("DATABASE_URL"):
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql://hospital:hospital@127.0.0.1:5432/hospital",
+        )
     sys.path.insert(0, str(BACKEND_DIR))
-    module = importlib.import_module("app")
+    try:
+        module = importlib.import_module("app")
+    except psycopg2.OperationalError:
+        sys.modules.pop("app", None)
+        sys.modules.pop("database", None)
+        pytest.skip("PostgreSQL is not reachable; start it with: docker compose up -d db")
 
-    db_path = tmp_path / "hospital.db"
-    monkeypatch.setattr(module.db, "DB_PATH", db_path)
     module.db._sessions.clear()
     module.db.init_db()
     module.app.config.update(TESTING=True)

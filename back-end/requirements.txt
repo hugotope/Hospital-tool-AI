@@ -1,5 +1,7 @@
 flask
 flask-cors
+psycopg2-binary
+pymongo
 werkzeug
 scikit-learn
 pandas

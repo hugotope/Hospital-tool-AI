@@ -11,6 +11,8 @@ Endpoints:
             GET  /api/dataset/stats
             GET  /api/dataset/list
             POST /api/dataset/upload
+            POST /api/radiology/upload (imagenes en MongoDB GridFS)
+            GET  /api/radiology/list
             GET  /api/diseases
             POST /api/ai/analyze
             POST /api/ai/predict-disease
@@ -40,8 +42,10 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template_string, request
 from flask_cors import CORS
+from pymongo.errors import PyMongoError
 
 import database as db
+import mongo_radiology as radiology_store
 import pipeline
 from ai_predictor import predictor
 
@@ -50,7 +54,9 @@ from ai_predictor import predictor
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("HOSPITAL_MAX_UPLOAD_MB", "25")) * 1024 * 1024
+_csv_mb = int(os.environ.get("HOSPITAL_MAX_UPLOAD_MB", "25"))
+_rad_mb = int(os.environ.get("HOSPITAL_MAX_RADIOLOGY_MB", "100"))
+app.config["MAX_CONTENT_LENGTH"] = max(_csv_mb, _rad_mb) * 1024 * 1024
 
 
 def _cors_origins() -> list[str]:
@@ -862,6 +868,115 @@ def dataset_upload():
     }), 200
 
 
+def _parse_radiology_category(raw: str) -> tuple[str | None, str]:
+    """
+    Normaliza el parametro category del formulario/consulta.
+    Devuelve (None, error) si no es valido, o ("general"|"dental", "") si ok.
+    """
+    v = (raw or "").strip().lower()
+    if v in ("dental", "dentist", "odontologia", "diente", "teeth"):
+        return "dental", ""
+    if v in ("general", "radiology", "radiografia", "rx", "bodily", "hospital"):
+        return "general", ""
+    if v == "":
+        return "general", ""
+    return None, "Categoria debe ser general o dental."
+
+
+@app.post("/api/radiology/upload")
+@require_auth
+def radiology_upload():
+    cat, cat_err = _parse_radiology_category(request.form.get("category", ""))
+    if cat is None:
+        return jsonify({"error": cat_err}), 400
+
+    uploads = [f for f in (request.files.getlist("files") or []) if f and getattr(f, "filename", None)]
+    single = request.files.get("file")
+    if not uploads and single and getattr(single, "filename", None):
+        uploads = [single]
+    if not uploads:
+        return jsonify({"error": "No se encontraron archivos (use files[] o file)."}), 400
+
+    notes = str(request.form.get("notes") or "")
+    folder_hint = str(request.form.get("folder_hint") or "")
+    uploaded_by = str(request.session.get("username") or "user")
+
+    saved: list[dict] = []
+    errors: list[dict[str, str]] = []
+
+    try:
+        radiology_store.mongo_client().admin.command("ping")
+        for uf in uploads:
+            if not uf or not uf.filename:
+                continue
+            if not radiology_store.validate_extension(uf.filename):
+                errors.append({
+                    "filename": uf.filename,
+                    "error": "Extension no permitida.",
+                })
+                continue
+            uf.stream.seek(0)
+            try:
+                meta = radiology_store.store_upload(
+                    cat,
+                    stream=uf.stream,
+                    filename=uf.filename,
+                    content_type=getattr(uf, "mimetype", None) or "",
+                    uploaded_by=uploaded_by,
+                    folder_hint=folder_hint,
+                    notes=notes,
+                )
+                saved.append(meta)
+            except ValueError as ve:
+                errors.append({"filename": uf.filename or "", "error": str(ve)})
+    except PyMongoError as exc:
+        return jsonify({"error": "MongoDB no disponible.", "detail": str(exc)}), 503
+    except OSError as exc:
+        return jsonify({"error": "Error accediendo a MongoDB.", "detail": str(exc)}), 503
+
+    if not saved and not errors:
+        return jsonify({"error": "Ningun archivo valido procesado."}), 400
+
+    if saved:
+        db.add_notification(
+            "Radiografias subidas",
+            f"{len(saved)} archivo(s) en almacen {cat}"
+            + (f" (+{len(errors)} omitidos)." if errors else "."),
+            level="success",
+            source="radiology",
+            meta={
+                "category": cat,
+                "count": len(saved),
+                "errors": len(errors),
+            },
+        )
+
+    return jsonify({
+        "category": cat,
+        "uploaded": len(saved),
+        "skipped": len(errors),
+        "files": saved,
+        "errors": errors,
+    }), 200
+
+
+@app.get("/api/radiology/list")
+@require_auth
+def radiology_list():
+    cat, cat_err = _parse_radiology_category(request.args.get("category", "general"))
+    if cat is None:
+        return jsonify({"error": cat_err}), 400
+    try:
+        limit = int(request.args.get("limit", "40"))
+    except ValueError:
+        limit = 40
+    try:
+        items = radiology_store.list_recent(cat, limit=limit)
+    except PyMongoError as exc:
+        return jsonify({"error": "MongoDB no disponible.", "detail": str(exc)}), 503
+    return jsonify({"category": cat, "items": items}), 200
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Diseases endpoint
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1537,7 +1652,7 @@ _REPORT_TEMPLATE = """<!doctype html>
 
   <h2>3. Arquitectura</h2>
   <ul>
-    <li><strong>Backend:</strong> Flask (Python 3.13) + SQLite.</li>
+    <li><strong>Backend:</strong> Flask (Python 3.13) + PostgreSQL.</li>
     <li><strong>ML:</strong> scikit-learn RandomForest + TF-IDF + IsolationForest. Soporte opcional para PySpark.</li>
     <li><strong>Persistencia:</strong> tabla <code>patients</code> con diagnostico, riesgo, zona y medico.</li>
     <li><strong>Frontend:</strong> SPA vanilla JavaScript con i18n (ES/EN/CA), diseño corporativo responsive.</li>

@@ -356,6 +356,7 @@
     model: renderModel,
     users: renderUsers,
     report: renderReport,
+    radiology: renderRadiology,
   };
 
   function navigate(section) {
@@ -1383,6 +1384,187 @@
     } catch (e) {
       out.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
     }
+  }
+
+  function rxFmtBytes(n) {
+    if (n == null || n === "") return "—";
+    const v = Number(n);
+    if (!Number.isFinite(v) || v < 0) return "—";
+    const units = ["B", "KB", "MB", "GB"];
+    let i = 0;
+    let x = v;
+    while (x >= 1024 && i < units.length - 1) {
+      x /= 1024;
+      i += 1;
+    }
+    const shown = i === 0 ? String(Math.round(x)) : x.toFixed(1);
+    return `${shown} ${units[i]}`;
+  }
+
+  async function renderRadiology() {
+    CONTENT().innerHTML = PAGE("radiology.title", "radiology.sub", `
+      <div class="card mb-16">
+        <div class="card-header"><h3 class="card-title">${t("radiology.uploadCard")}</h3></div>
+        <div class="grid-2" style="gap:16px;">
+          <div class="form-field">
+            <label>${t("radiology.destination")}</label>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;">
+              <label style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-size:13px;">
+                <input type="radio" name="rx-category" value="general" checked />
+                ${t("radiology.cat.general")}
+              </label>
+              <label style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-size:13px;">
+                <input type="radio" name="rx-category" value="dental" />
+                ${t("radiology.cat.dental")}
+              </label>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>${t("radiology.mode.help")}</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+              <button type="button" class="btn btn-sm btn-secondary rx-mode-pill" data-rx-mode="single">${t("radiology.mode.single")}</button>
+              <button type="button" class="btn btn-sm btn-secondary rx-mode-pill" data-rx-mode="multi">${t("radiology.mode.multi")}</button>
+              <button type="button" class="btn btn-sm btn-secondary rx-mode-pill" data-rx-mode="folder">${t("radiology.mode.folder")}</button>
+            </div>
+          </div>
+        </div>
+        <input id="rx-files" type="file" style="display:none;"
+          accept=".jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif,.dcm,.dic,image/jpeg,image/png,image/webp,image/tiff,image/gif,image/bmp" />
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px;">
+          <button type="button" class="btn btn-secondary" id="rx-browse">${t("radiology.browse")}</button>
+          <span class="text-sm text-muted" id="rx-accept-hint">${t("radiology.accept")}</span>
+        </div>
+        <p class="text-sm" style="margin:10px 0 6px;"><strong>${t("radiology.selection")}:</strong> <span id="rx-selection">${t("radiology.none")}</span></p>
+        <div class="grid-2" style="gap:12px;margin-top:8px;">
+          <div class="form-field mb-0">
+            <label for="rx-notes">${t("radiology.notesLabel")}</label>
+            <textarea id="rx-notes" rows="2"></textarea>
+          </div>
+          <div class="form-field mb-0">
+            <label for="rx-folder-hint">${t("radiology.folderHintLabel")}</label>
+            <input id="rx-folder-hint" type="text" />
+          </div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary" id="rx-upload">${t("radiology.uploadBtn")}</button>
+          <span class="text-sm text-muted" id="rx-msg" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">${t("radiology.recentTitle")}</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="rx-refresh">${t("common.refresh")}</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>${t("radiology.col.file")}</th>
+                <th>${t("radiology.col.size")}</th>
+                <th>${t("radiology.col.date")}</th>
+                <th>${t("radiology.col.user")}</th>
+              </tr>
+            </thead>
+            <tbody id="rx-tbody"><tr><td colspan="4" class="empty">${t("common.loading")}</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    `);
+
+    const fileEl = $("#rx-files");
+
+    function setMode(mode) {
+      fileEl.value = "";
+      $$(".rx-mode-pill").forEach((b) => {
+        const active = b.dataset.rxMode === mode;
+        b.classList.toggle("btn-primary", active);
+        b.classList.toggle("btn-secondary", !active);
+      });
+      if (mode === "single") fileEl.removeAttribute("multiple");
+      else fileEl.setAttribute("multiple", "");
+      if (mode === "folder") fileEl.setAttribute("webkitdirectory", "");
+      else fileEl.removeAttribute("webkitdirectory");
+      syncSelection();
+    }
+
+    function syncSelection() {
+      const n = fileEl.files ? fileEl.files.length : 0;
+      $("#rx-selection").textContent = n ? t("radiology.selected", { n }) : t("radiology.none");
+    }
+
+    $$(".rx-mode-pill").forEach((b) =>
+      b.addEventListener("click", () => setMode(b.dataset.rxMode)));
+
+    $("#rx-browse").addEventListener("click", () => fileEl.click());
+    fileEl.addEventListener("change", syncSelection);
+
+    $$("input[name=rx-category]").forEach((r) =>
+      r.addEventListener("change", () => loadRx()));
+
+    $("#rx-refresh").addEventListener("click", () => loadRx());
+
+    async function loadRx() {
+      const catSel = $("input[name=rx-category]:checked");
+      const cat = (catSel && catSel.value) ? catSel.value : "general";
+      const body = $("#rx-tbody");
+      body.innerHTML = `<tr><td colspan="4" class="empty"><div class="spinner"></div></td></tr>`;
+      try {
+        const r = await api(`/radiology/list?category=${encodeURIComponent(cat)}&limit=80`);
+        const rows = r.items || [];
+        if (!rows.length) {
+          body.innerHTML = `<tr><td colspan="4" class="empty">${t("common.empty")}</td></tr>`;
+          return;
+        }
+        body.innerHTML = rows.map((it) => `
+          <tr>
+            <td><strong>${escapeHtml(it.filename || "")}</strong></td>
+            <td>${escapeHtml(rxFmtBytes(it.length))}</td>
+            <td>${escapeHtml((it.upload_date || "").replace("T", " ").slice(0, 19))}</td>
+            <td>${escapeHtml(it.uploaded_by || "")}</td>
+          </tr>`).join("");
+      } catch (e) {
+        body.innerHTML = `<tr><td colspan="4" class="alert alert-danger">${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    $("#rx-upload").addEventListener("click", async () => {
+      $("#rx-msg").textContent = "";
+      const n = fileEl.files ? fileEl.files.length : 0;
+      if (!n) {
+        toast(t("radiology.needFiles"), "warning");
+        return;
+      }
+      const catSel = $("input[name=rx-category]:checked");
+      const cat = (catSel && catSel.value) ? catSel.value : "general";
+      const fd = new FormData();
+      fd.append("category", cat);
+      fd.append("notes", $("#rx-notes").value.trim());
+      fd.append("folder_hint", $("#rx-folder-hint").value.trim());
+      for (let i = 0; i < fileEl.files.length; i += 1) {
+        fd.append("files", fileEl.files[i]);
+      }
+      const btn = $("#rx-upload");
+      btn.disabled = true;
+      try {
+        const data = await api("/radiology/upload", { method: "POST", body: fd });
+        const ok = data.uploaded || 0;
+        const fail = data.skipped || 0;
+        if (fail) toast(t("radiology.partial", { ok, fail }), "warning");
+        else toast(t("radiology.success", { n: ok }), "success");
+        fileEl.value = "";
+        syncSelection();
+        await loadRx();
+      } catch (err) {
+        const fallback = err.status === 503 ? t("radiology.error.mongo") : (err.message || t("common.error"));
+        toast(fallback, "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    setMode("single");
+    await loadRx();
   }
 
   // ═══════════════════════ DATASET ═══════════════════════

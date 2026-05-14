@@ -1,30 +1,104 @@
+# Hospital AI — stack completo (PostgreSQL + MongoDB + Flask + Nginx).
+# En cualquier máquina con Docker:
+#   docker compose up -d --build
+# Portal: http://localhost  |  API: http://localhost:8000/api/health
+# (Postgres y Mongo solo están en la red interna; evita conflictos con instancias locales.)
+
+name: hospital-tool-ai
+
 services:
+  mongo:
+    image: mongo:7
+    container_name: hospital-ai-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: hospital
+      MONGO_INITDB_ROOT_PASSWORD: hospital
+    volumes:
+      - hospital_mongo_data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh 'mongodb://hospital:hospital@127.0.0.1:27017/admin' --quiet --eval 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)'",
+        ]
+      interval: 4s
+      timeout: 5s
+      retries: 18
+      start_period: 15s
+
+  db:
+    image: postgres:16-alpine
+    container_name: hospital-ai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hospital
+      POSTGRES_PASSWORD: hospital
+      POSTGRES_DB: hospital
+    volumes:
+      - hospital_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hospital -d hospital"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
   backend:
     build:
       context: .
       dockerfile: back-end/Dockerfile
+    image: hospital-tool-ai-backend
     container_name: hospital-ai-backend
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
     environment:
+      DATABASE_URL: postgresql://hospital:hospital@db:5432/hospital
+      MONGO_URI: mongodb://hospital:hospital@mongo:27017/?authSource=admin
+      MONGO_DB_RADIOLOGY: medai_radiology
+      MONGO_DB_DENTAL: medai_dental
+      HOSPITAL_MAX_RADIOLOGY_MB: "120"
       HOSPITAL_HOST: 0.0.0.0
       HOSPITAL_PORT: 8000
-      HOSPITAL_DEBUG: 0
-      HOSPITAL_CORS_ORIGINS: http://localhost
+      HOSPITAL_DEBUG: "0"
+      HOSPITAL_CORS_ORIGINS: http://localhost,http://127.0.0.1,http://localhost:80,http://127.0.0.1:80
     volumes:
-      - ./back-end:/app/back-end
-      - ./models-ia:/app/models-ia
-      - ./uploaded_datasets:/app/uploaded_datasets
-      - ./healthcare_dataset_100k.csv:/app/healthcare_dataset_100k.csv
+      - hospital_uploads:/app/uploaded_datasets
+    ports:
+      - "8000:8000"
     expose:
       - "8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/health', timeout=8).read()",
+        ]
+      interval: 12s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
 
   frontend:
     build:
       context: .
       dockerfile: front-end/Dockerfile
+    image: hospital-tool-ai-frontend
     container_name: hospital-ai-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "80:80"
+
+volumes:
+  hospital_pg_data:
+  hospital_mongo_data:
+  hospital_uploads:
