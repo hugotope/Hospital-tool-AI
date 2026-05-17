@@ -1259,3 +1259,235 @@ tbody tr:hover { background: var(--c-surface-2); }
   #main-content { padding: 0; }
   .card { box-shadow: none; border: 1px solid #ccc; }
 }
+
+/* =========================================================================
+   Radiografías CNN — Clasificación de Tórax
+   ========================================================================= */
+
+/* ── Layout de dos columnas ──────────────────────────────────────────────── */
+.rx-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .rx-layout { grid-template-columns: 1fr; }
+}
+
+.rx-panel {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.rx-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  margin: 0 0 14px;
+}
+.rx-panel-title .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--c-accent);
+}
+.rx-section-block {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.rx-section-block:last-child { margin-bottom: 0; }
+
+/* ── Dropzone ────────────────────────────────────────────────────────────── */
+.rx-dropzone {
+  border: 2px dashed var(--c-border-strong);
+  border-radius: 10px;
+  padding: 32px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .18s, background .18s;
+  background: var(--c-surface-2);
+}
+.rx-dropzone:hover,
+.rx-dropzone:focus,
+.rx-dropzone.drag-over {
+  border-color: var(--c-accent);
+  background: var(--c-primary-soft);
+  outline: none;
+}
+.rx-drop-icon {
+  font-size: 40px !important;
+  color: var(--c-text-subtle);
+  margin-bottom: 8px;
+  display: block;
+}
+.rx-drop-text {
+  font-size: 13px;
+  color: var(--c-text-muted);
+  margin: 0 0 4px;
+  line-height: 1.5;
+}
+.rx-drop-hint {
+  font-size: 11px;
+  color: var(--c-text-subtle);
+  margin: 0;
+}
+
+/* ── Preview ─────────────────────────────────────────────────────────────── */
+.rx-preview-wrap {
+  margin-top: 12px;
+  text-align: center;
+}
+.rx-preview-img {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid var(--c-border);
+  object-fit: contain;
+  background: #000;
+}
+.rx-preview-name {
+  font-size: 11px;
+  color: var(--c-text-subtle);
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+/* ── Result card ─────────────────────────────────────────────────────────── */
+.rx-result-card {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+}
+.rx-result-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 20px;
+  margin-bottom: 6px;
+}
+.rx-badge-success { background: #dcfce7; color: #15803d; }
+.rx-badge-warning { background: var(--c-warning-soft); color: var(--c-warning); }
+.rx-badge-danger  { background: var(--c-danger-soft); color: var(--c-danger-ink); }
+.rx-badge-info    { background: var(--c-info-soft); color: var(--c-info); }
+
+.rx-result-confidence {
+  font-size: 13px;
+  color: var(--c-text-muted);
+  margin-bottom: 10px;
+}
+
+/* ── Clinical alert ──────────────────────────────────────────────────────── */
+.rx-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--c-danger-soft);
+  border: 1px solid var(--c-danger);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--c-danger-ink);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.rx-alert .material-symbols-outlined { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+
+/* ── Probability bars ────────────────────────────────────────────────────── */
+.rx-prob-bars { display: flex; flex-direction: column; gap: 8px; }
+.rx-bar-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 40px;
+  align-items: center;
+  gap: 8px;
+}
+.rx-bar-label { font-size: 12px; color: var(--c-text-muted); }
+.rx-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--c-surface-4);
+  overflow: hidden;
+}
+.rx-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .4s ease;
+}
+.rx-bar-success { background: #22c55e; }
+.rx-bar-warning { background: #f59e0b; }
+.rx-bar-danger  { background: #ef4444; }
+.rx-bar-info    { background: var(--c-accent); }
+.rx-bar-pct { font-size: 11px; color: var(--c-text-subtle); text-align: right; }
+
+/* ── Model status ────────────────────────────────────────────────────────── */
+.rx-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+/* ── Confusion matrix ────────────────────────────────────────────────────── */
+.rx-cm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.rx-cm-table th, .rx-cm-table td {
+  border: 1px solid var(--c-border);
+  padding: 6px 10px;
+  text-align: center;
+}
+.rx-cm-table th {
+  background: var(--c-surface-2);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  font-size: 11px;
+}
+.rx-cm-diag {
+  background: #dcfce7;
+  color: #15803d;
+  font-weight: 700;
+}
+.rx-cm-err {
+  background: var(--c-danger-soft);
+  color: var(--c-danger-ink);
+  font-weight: 600;
+}
+
+/* ── Clinical analysis notes ─────────────────────────────────────────────── */
+.rx-clinical-notes { display: flex; flex-direction: column; gap: 8px; }
+.rx-clin-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.rx-clin-note .material-symbols-outlined { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.rx-clin-danger  { background: var(--c-danger-soft);  color: var(--c-danger-ink); border: 1px solid var(--c-danger); }
+.rx-clin-warning { background: var(--c-warning-soft); color: #78350f; border: 1px solid var(--c-warning); }
+.rx-clin-info    { background: var(--c-info-soft);    color: var(--c-info); border: 1px solid var(--c-info); }
+
+/* Radiology preview (shared with portal cards) */
+.img-preview-wrap { margin-top: 12px; text-align: center; }
+.img-preview {
+  max-width: 100%; max-height: 220px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border);
+  object-fit: contain;
+  background: #0f172a;
+}

@@ -23,12 +23,15 @@ MedAI Hospital es una plataforma clínica que asiste al personal médico en:
 ## 2. Arquitectura
 
 ```
-┌─────────────────┐        ┌──────────────┐        ┌──────────────┐
-│  Frontend SPA   │ <───>  │  Flask API   │ <───>  │  SQLite DB   │
-│  (HTML/CSS/JS)  │  JSON  │  Python 3.13 │  ORM   │  hospital.db │
-│  i18n ES/EN/CA  │        │              │        └──────────────┘
-│  Chart.js v4    │        │              │
-└─────────────────┘        │              │        ┌──────────────┐
+┌─────────────────┐        ┌──────────────┐        ┌──────────────────┐
+│  Frontend SPA   │ <───>  │  Flask API   │ <───>  │  PostgreSQL 16   │
+│  (HTML/CSS/JS)  │  JSON  │  Python 3.11 │  SQL   │  patients, users │
+│  i18n ES/EN/CA  │        │              │        └──────────────────┘
+│  Chart.js v4    │        │              │        ┌──────────────────┐
+└─────────────────┘        │              │ <───── │ MongoDB 7        │
+                           │              │  GridFS│  radiología/dental│
+                           │              │        └──────────────────┘
+                           │              │        ┌──────────────┐
                            │              │ <───── │ pipeline.py  │
                            │              │  ETL   │ pandas       │
                            │              │        └──────────────┘
@@ -44,7 +47,8 @@ MedAI Hospital es una plataforma clínica que asiste al personal médico en:
 - **Pipeline ETL**: `back-end/pipeline.py` (ingesta → limpieza → transformación → análisis)
 - **Predicción**: `back-end/ai_predictor.py` (wrapper thread-safe sobre el bundle `.joblib`)
 - **Entrenamiento**: `models-ia/train_spark.py` (sklearn con fallback PySpark)
-- **Persistencia**: `back-end/database.py` (SQLite + tabla `patients` + búsqueda incremental)
+- **Persistencia estructurada**: `back-end/database.py` (PostgreSQL: `patients`, `users`, búsqueda incremental)
+- **Radiología / dental**: `back-end/mongo_radiology.py` (MongoDB + GridFS para DICOM)
 - **Frontend**: `front-end/index.html` + `css/style.css` + `js/app.js` + `js/i18n.js` + `js/charts.js`
 
 ---
@@ -121,7 +125,7 @@ médico especialista (`DIAGNOSIS_ASSIGNMENTS` en `app.py`):
 | Otros | Medicina General | Dr. Equipo de Guardia |
 
 Al invocar `POST /api/ai/analyze` con `save: true` (por defecto), el paciente se
-persiste en la tabla `patients` de SQLite con todos los campos calculados.
+persiste en la tabla `patients` de PostgreSQL con todos los campos calculados.
 
 ---
 
@@ -288,7 +292,7 @@ La arquitectura respeta las **5 V** del Big Data:
 
 | Dimensión | Cómo se aborda en MedAI Hospital |
 |---|---|
-| **Volume** | Pipeline por lotes con pandas (soporta >100k filas), SQLite indexado por `diagnosis / zone / created_at`, paginación en listados (`limit` ≤ 1000). El código está preparado para escalar a PySpark (`models-ia/train_spark.py`) sin cambios de interfaz. |
+| **Volume** | Pipeline por lotes con pandas (soporta >100k filas), PostgreSQL indexado por `diagnosis / zone / created_at`, paginación en listados (`limit` ≤ 1000). Imágenes radiológicas en MongoDB/GridFS. El código está preparado para escalar a PySpark (`models-ia/train_spark.py`) sin cambios de interfaz. |
 | **Velocity** | Lectura *streaming*-friendly (`csv.DictReader` / `pd.read_csv(chunksize)`), endpoints asíncronos para entrenamiento (`threading.Thread`), búsqueda incremental con debounce (<200 ms), caches en memoria para catálogos de enfermedades. |
 | **Variety** | Ingesta multi-codificación (UTF-8/Latin-1), normalización de género (`M/F/Masculino/Femenino → Male/Female`), traducción de síntomas ES ↔ EN ↔ CA en `SYMPTOM_MAP` (280+ entradas), columnas opcionales toleradas. |
 | **Veracity** | Stage de *limpieza* elimina duplicados, NAs, outliers; dropout y label-noise en entrenamiento previenen sobreajuste; IsolationForest detecta registros anómalos; métricas con *cross-validation* 3-fold para estimar la variabilidad real. |
@@ -320,14 +324,15 @@ La arquitectura respeta las **5 V** del Big Data:
                                ▼
       ┌───────────────────────────────────────────────────────────┐
       │  Capa de datos                                            │
-      │  CSV raw · SQLite (patients, users) · bundle .joblib      │
+      │  CSV raw · PostgreSQL (patients, users) · MongoDB (DICOM)   │
+      │  · bundle .joblib                                         │
       └───────────────────────────────────────────────────────────┘
 ```
 
 - **Ingestión / batch**: `pipeline.run_pipeline` (equivalente a un job Spark).
 - **Serving**: `ai_predictor.predictor` carga el bundle una vez y responde < 20 ms.
 - **Analytics**: `patients_eda`, `analytics_patterns`, `analytics_anomalies`.
-- **Almacenamiento**: CSV *raw* (landing zone) + SQLite (trusted zone) + bundle entrenado.
+- **Almacenamiento**: CSV *raw* (landing zone) + PostgreSQL (datos estructurados) + MongoDB (radiología) + bundle entrenado.
 
 ---
 

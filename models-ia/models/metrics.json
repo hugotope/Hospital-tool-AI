@@ -1,34 +1,24 @@
 {
-  "disease_accuracy": 0.8408,
-  "disease_f1_weighted": 0.8703484333698774,
-  "disease_cv_accuracy_mean": 0.8530049818175595,
-  "disease_cv_accuracy_std": 0.004982938720508554,
-  "risk_accuracy": 0.672425,
-  "risk_f1_weighted": 0.6854113340113052,
-  "risk_cv_accuracy_mean": 0.6731399960586373,
-  "risk_cv_accuracy_std": 0.0015890255367851877,
-  "n_samples": 200000,
+  "disease_accuracy": 0.8829,
+  "disease_f1_weighted": 0.8937326764250422,
+  "disease_cv_accuracy_mean": 0.8851800031770042,
+  "disease_cv_accuracy_std": 0.00031475030011201047,
+  "risk_accuracy": 0.715,
+  "risk_f1_weighted": 0.7305031735674836,
+  "risk_cv_accuracy_mean": 0.7258500922442476,
+  "risk_cv_accuracy_std": 0.006597664415350517,
+  "n_samples": 100000,
   "disease_classes": [
-    "Anemia",
-    "Anxiety Disorder",
-    "Arthritis",
     "Asthma",
-    "Bronchitis",
     "COVID-19",
     "Cancer",
     "Depression",
-    "Dermatitis",
     "Diabetes",
-    "Gastroenteritis",
     "Heart Disease",
     "Hypertension",
     "Kidney Disease",
     "Liver Disease",
-    "Migraine",
-    "Osteoporosis",
-    "Pneumonia",
-    "Stroke",
-    "Thyroid Disorder"
+    "Stroke"
   ],
   "risk_classes": [
     "High",
@@ -36,33 +26,23 @@
     "Medium"
   ],
   "disease_distribution": {
-    "Pneumonia": 10226,
-    "Dermatitis": 10202,
-    "Anxiety Disorder": 10199,
     "Kidney Disease": 10146,
     "Cancer": 10145,
     "Diabetes": 10110,
     "Asthma": 10054,
-    "Thyroid Disorder": 10050,
-    "Anemia": 10000,
     "Depression": 9970,
-    "Bronchitis": 9964,
     "Hypertension": 9954,
-    "Osteoporosis": 9945,
     "Liver Disease": 9943,
     "Stroke": 9937,
     "COVID-19": 9902,
-    "Migraine": 9848,
-    "Heart Disease": 9839,
-    "Arthritis": 9837,
-    "Gastroenteritis": 9729
+    "Heart Disease": 9839
   },
   "risk_distribution": {
-    "High": 83299,
-    "Medium": 81107,
-    "Low": 35594
+    "High": 61948,
+    "Medium": 33920,
+    "Low": 4132
   },
-  "trained_at": "2026-04-28T17:29:30",
+  "trained_at": "2026-05-17T21:24:17",
   "features_used": [
     "symptoms_tfidf",
     "age",
@@ -71,76 +51,40 @@
   "symptom_dropout_keep_prob": 0.65,
   "risk_label_noise_pct": 0.05,
   "classification_report_disease": {
-    "Anemia": {
-      "precision": 1.0,
-      "recall": 0.8165,
-      "f1-score": 0.8989815579410955,
-      "support": 2000.0
-    },
-    "Anxiety Disorder": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 2040.0
-    },
-    "Arthritis": {
-      "precision": 1.0,
-      "recall": 0.8012201321809863,
-      "f1-score": 0.8896415467118262,
-      "support": 1967.0
-    },
     "Asthma": {
       "precision": 1.0,
-      "recall": 0.8065638985579314,
-      "f1-score": 0.8929259565097716,
+      "recall": 0.8189955246146196,
+      "f1-score": 0.900492072170585,
       "support": 2011.0
-    },
-    "Bronchitis": {
-      "precision": 1.0,
-      "recall": 0.8148519819367788,
-      "f1-score": 0.8979817528338402,
-      "support": 1993.0
     },
     "COVID-19": {
       "precision": 1.0,
-      "recall": 0.6378787878787879,
-      "f1-score": 0.7789084181313598,
+      "recall": 1.0,
+      "f1-score": 1.0,
       "support": 1980.0
     },
     "Cancer": {
       "precision": 1.0,
-      "recall": 0.4682109413504189,
-      "f1-score": 0.6377979187646862,
+      "recall": 0.8097585017249876,
+      "f1-score": 0.894880174291939,
       "support": 2029.0
     },
     "Depression": {
       "precision": 1.0,
-      "recall": 0.8019057171514543,
-      "f1-score": 0.8900640133593097,
+      "recall": 0.8009027081243731,
+      "f1-score": 0.8894458368142578,
       "support": 1994.0
-    },
-    "Dermatitis": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 2040.0
     },
     "Diabetes": {
       "precision": 1.0,
-      "recall": 0.8036597428288823,
-      "f1-score": 0.891143405538799,
+      "recall": 0.8051434223541049,
+      "f1-score": 0.8920547945205479,
       "support": 2022.0
     },
-    "Gastroenteritis": {
-      "precision": 1.0,
-      "recall": 0.8278520041109969,
-      "f1-score": 0.9058195108237279,
-      "support": 1946.0
-    },
     "Heart Disease": {
-      "precision": 0.6752577319587629,
-      "recall": 0.7987804878048781,
-      "f1-score": 0.7318435754189944,
+      "precision": 0.8094240837696335,
+      "recall": 0.7855691056910569,
+      "f1-score": 0.7973182052604435,
       "support": 1968.0
     },
     "Hypertension": {
@@ -150,34 +94,16 @@
       "support": 1991.0
     },
     "Kidney Disease": {
-      "precision": 0.2655411595340924,
+      "precision": 0.5063638632393311,
       "recall": 1.0,
-      "f1-score": 0.41964839710444674,
+      "f1-score": 0.6722995361166335,
       "support": 2029.0
     },
     "Liver Disease": {
       "precision": 1.0,
-      "recall": 0.8089492207139266,
-      "f1-score": 0.8943857698721512,
+      "recall": 0.8094519859225742,
+      "f1-score": 0.8946929702695193,
       "support": 1989.0
-    },
-    "Migraine": {
-      "precision": 1.0,
-      "recall": 0.8152284263959391,
-      "f1-score": 0.8982102908277405,
-      "support": 1970.0
-    },
-    "Osteoporosis": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 1989.0
-    },
-    "Pneumonia": {
-      "precision": 1.0,
-      "recall": 0.7946210268948656,
-      "f1-score": 0.885558583106267,
-      "support": 2045.0
     },
     "Stroke": {
       "precision": 1.0,
@@ -185,57 +111,51 @@
       "f1-score": 1.0,
       "support": 1987.0
     },
-    "Thyroid Disorder": {
-      "precision": 1.0,
-      "recall": 0.8164179104477612,
-      "f1-score": 0.8989317995069844,
-      "support": 2010.0
-    },
-    "accuracy": 0.8408,
+    "accuracy": 0.8829,
     "macro avg": {
-      "precision": 0.9470399445746427,
-      "recall": 0.8406320139126804,
-      "f1-score": 0.8705921248225501,
-      "support": 40000.0
+      "precision": 0.9315787947008964,
+      "recall": 0.8829821248431717,
+      "f1-score": 0.8941183589443925,
+      "support": 20000.0
     },
     "weighted avg": {
-      "precision": 0.946767255729738,
-      "recall": 0.8408,
-      "f1-score": 0.8703484333698774,
-      "support": 40000.0
+      "precision": 0.9311679437685619,
+      "recall": 0.8829,
+      "f1-score": 0.8937326764250422,
+      "support": 20000.0
     }
   },
   "classification_report_risk": {
     "High": {
-      "precision": 0.9495856888407032,
-      "recall": 0.7481847580694369,
-      "f1-score": 0.8369394580574705,
-      "support": 16389.0
+      "precision": 0.9462378495139806,
+      "recall": 0.6582352450121045,
+      "f1-score": 0.7763883418668768,
+      "support": 11979.0
     },
     "Low": {
-      "precision": 0.4196785873086451,
-      "recall": 0.8693421052631579,
-      "f1-score": 0.5660797669536907,
-      "support": 7600.0
+      "precision": 0.30296950240770465,
+      "recall": 0.5992063492063492,
+      "f1-score": 0.40245202558635396,
+      "support": 1260.0
     },
     "Medium": {
-      "precision": 0.7076868829337094,
-      "recall": 0.5014052838673412,
-      "f1-score": 0.586949369402303,
-      "support": 16011.0
+      "precision": 0.6168937329700273,
+      "recall": 0.8371542671202484,
+      "f1-score": 0.7103413654618473,
+      "support": 6761.0
     },
-    "accuracy": 0.672425,
+    "accuracy": 0.715,
     "macro avg": {
-      "precision": 0.6923170530276859,
-      "recall": 0.706310715733312,
-      "f1-score": 0.6633228648044881,
-      "support": 40000.0
+      "precision": 0.6220336949639041,
+      "recall": 0.698198620446234,
+      "f1-score": 0.629727244305026,
+      "support": 20000.0
     },
     "weighted avg": {
-      "precision": 0.7520772950151903,
-      "recall": 0.672425,
-      "f1-score": 0.6854113340113052,
-      "support": 40000.0
+      "precision": 0.7943771650486017,
+      "recall": 0.715,
+      "f1-score": 0.7305031735674836,
+      "support": 20000.0
     }
   }
 }

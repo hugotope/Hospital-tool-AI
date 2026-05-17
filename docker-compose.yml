@@ -28,7 +28,7 @@ services:
       start_period: 15s
 
   db:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     container_name: hospital-ai-postgres
     restart: unless-stopped
     environment:
@@ -59,15 +59,17 @@ services:
     environment:
       DATABASE_URL: postgresql://hospital:hospital@db:5432/hospital
       MONGO_URI: mongodb://hospital:hospital@mongo:27017/?authSource=admin
+      MONGO_DB: hospital_ai
       MONGO_DB_RADIOLOGY: medai_radiology
       MONGO_DB_DENTAL: medai_dental
       HOSPITAL_MAX_RADIOLOGY_MB: "120"
       HOSPITAL_HOST: 0.0.0.0
       HOSPITAL_PORT: 8000
       HOSPITAL_DEBUG: "0"
-      HOSPITAL_CORS_ORIGINS: http://localhost,http://127.0.0.1,http://localhost:80,http://127.0.0.1:80
+      HOSPITAL_CORS_ORIGINS: http://localhost,http://127.0.0.1,http://localhost:8888,http://127.0.0.1:8888
     volumes:
       - hospital_uploads:/app/uploaded_datasets
+      - ./models-ia/models:/app/models-ia/models
     ports:
       - "8000:8000"
     expose:
@@ -96,7 +98,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "80:80"
+      - "8888:80"
 
 volumes:
   hospital_pg_data:

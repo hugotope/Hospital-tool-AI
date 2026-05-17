@@ -4,7 +4,10 @@
 (function () {
   "use strict";
 
-  const API = "/api";
+  const API =
+    location.port === "8888" || location.port === "80"
+      ? `${location.origin}/api`
+      : "http://127.0.0.1:8000/api";
   const LS_TOKEN = "medai_token";
   const LS_USER  = "medai_user";
 
@@ -1386,185 +1389,167 @@
     }
   }
 
-  function rxFmtBytes(n) {
-    if (n == null || n === "") return "—";
-    const v = Number(n);
-    if (!Number.isFinite(v) || v < 0) return "—";
-    const units = ["B", "KB", "MB", "GB"];
-    let i = 0;
-    let x = v;
-    while (x >= 1024 && i < units.length - 1) {
-      x /= 1024;
-      i += 1;
-    }
-    const shown = i === 0 ? String(Math.round(x)) : x.toFixed(1);
-    return `${shown} ${units[i]}`;
+  function rxClassLabel(key) {
+    const map = {
+      normal: "radiology.class.normal",
+      pneumonia: "radiology.class.pneumonia",
+      covid: "radiology.class.covid",
+    };
+    return t(map[key] || key);
   }
 
   async function renderRadiology() {
     CONTENT().innerHTML = PAGE("radiology.title", "radiology.sub", `
+      <div class="grid-4 mb-16">
+        <div class="kpi-card">
+          <div class="kpi-label">${t("radiology.kpi.model")}<span class="material-symbols-outlined" style="font-size:20px;color:var(--c-text-subtle);">smart_toy</span></div>
+          <div class="kpi-value" id="rx-kpi-model">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">${t("radiology.kpi.accuracy")}<span class="material-symbols-outlined" style="font-size:20px;color:var(--c-text-subtle);">verified</span></div>
+          <div class="kpi-value" id="rx-kpi-acc">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">${t("radiology.kpi.analyzed")}<span class="material-symbols-outlined" style="font-size:20px;color:var(--c-text-subtle);">radiology</span></div>
+          <div class="kpi-value" id="rx-kpi-total">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">${t("radiology.kpi.alerts")}<span class="material-symbols-outlined" style="font-size:20px;color:var(--c-accent-danger);">warning</span></div>
+          <div class="kpi-value text-danger" id="rx-kpi-alerts">—</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><h3 class="card-title">${t("radiology.uploadCard")}</h3></div>
+          <div class="upload-zone" id="rx-upload" tabindex="0" role="button">
+            <span class="up-icon material-symbols-outlined">add_photo_alternate</span>
+            <div>${t("radiology.dropHere")}</div>
+            <div class="text-xs text-muted mt-8">${t("radiology.acceptShort")}</div>
+            <input type="file" id="rx-file-input" accept=".jpg,.jpeg,.png,.webp,.bmp" hidden />
+          </div>
+          <div class="img-preview-wrap hidden" id="rx-preview-wrap">
+            <img id="rx-preview-img" class="img-preview" alt="" />
+            <p class="text-xs text-muted mt-8" id="rx-preview-name"></p>
+          </div>
+          <div class="form-field mt-12">
+            <label for="rx-patient-id">${t("radiology.patientId")}</label>
+            <input id="rx-patient-id" type="text" placeholder="${escapeHtml(t("radiology.patientIdPlaceholder"))}" />
+          </div>
+          <button type="button" class="btn btn-primary btn-full mt-12" id="rx-analyze-btn" disabled>
+            ${t("radiology.analyze")}
+          </button>
+        </div>
+
+        <div class="card" id="rx-result-panel">
+          <div class="card-header"><h3 class="card-title">${t("radiology.result.title")}</h3></div>
+          <div class="empty" id="rx-empty">
+            <div class="empty-icon material-symbols-outlined">radiology</div>
+            <div>${t("radiology.result.empty")}</div>
+          </div>
+          <div id="rx-result" class="result-block hidden"></div>
+        </div>
+      </div>
+
+      <div class="card mb-16 mt-16" id="rx-model-block">
+        <div class="card-header">
+          <h3 class="card-title">${t("radiology.model.title")}</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="rx-refresh">${t("common.refresh")}</button>
+        </div>
+        <div id="rx-model-status"><div class="empty"><div class="spinner"></div></div></div>
+        <div id="rx-admin-train" class="hidden" style="margin-top:14px;">
+          <button type="button" class="btn btn-secondary" id="rx-train-btn">${t("radiology.train")}</button>
+          <div id="rx-train-status" class="text-xs text-muted mt-8"></div>
+        </div>
+      </div>
+
       <div class="card mb-16">
-        <div class="card-header"><h3 class="card-title">${t("radiology.uploadCard")}</h3></div>
-        <div class="grid-2" style="gap:16px;">
-          <div class="form-field">
-            <label>${t("radiology.destination")}</label>
-            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;">
-              <label style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-size:13px;">
-                <input type="radio" name="rx-category" value="general" checked />
-                ${t("radiology.cat.general")}
-              </label>
-              <label style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-size:13px;">
-                <input type="radio" name="rx-category" value="dental" />
-                ${t("radiology.cat.dental")}
-              </label>
-            </div>
-          </div>
-          <div class="form-field">
-            <label>${t("radiology.mode.help")}</label>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-              <button type="button" class="btn btn-sm btn-secondary rx-mode-pill" data-rx-mode="single">${t("radiology.mode.single")}</button>
-              <button type="button" class="btn btn-sm btn-secondary rx-mode-pill" data-rx-mode="multi">${t("radiology.mode.multi")}</button>
-              <button type="button" class="btn btn-sm btn-secondary rx-mode-pill" data-rx-mode="folder">${t("radiology.mode.folder")}</button>
-            </div>
-          </div>
-        </div>
-        <input id="rx-files" type="file" style="display:none;"
-          accept=".jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif,.dcm,.dic,image/jpeg,image/png,image/webp,image/tiff,image/gif,image/bmp" />
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px;">
-          <button type="button" class="btn btn-secondary" id="rx-browse">${t("radiology.browse")}</button>
-          <span class="text-sm text-muted" id="rx-accept-hint">${t("radiology.accept")}</span>
-        </div>
-        <p class="text-sm" style="margin:10px 0 6px;"><strong>${t("radiology.selection")}:</strong> <span id="rx-selection">${t("radiology.none")}</span></p>
-        <div class="grid-2" style="gap:12px;margin-top:8px;">
-          <div class="form-field mb-0">
-            <label for="rx-notes">${t("radiology.notesLabel")}</label>
-            <textarea id="rx-notes" rows="2"></textarea>
-          </div>
-          <div class="form-field mb-0">
-            <label for="rx-folder-hint">${t("radiology.folderHintLabel")}</label>
-            <input id="rx-folder-hint" type="text" />
-          </div>
-        </div>
-        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          <button type="button" class="btn btn-primary" id="rx-upload">${t("radiology.uploadBtn")}</button>
-          <span class="text-sm text-muted" id="rx-msg" aria-live="polite"></span>
+        <div class="card-header"><h3 class="card-title">${t("radiology.confusion")}</h3></div>
+        <div id="rx-confusion-matrix"><p class="text-sm text-muted">${t("radiology.confusion.empty")}</p></div>
+        <div id="rx-clinical-analysis" class="hidden mt-16">
+          <h4 class="card-title" style="font-size:13px;margin-bottom:10px;">${t("radiology.clinical.title")}</h4>
+          <div id="rx-clinical-notes"></div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <h3 class="card-title">${t("radiology.recentTitle")}</h3>
-          <button type="button" class="btn btn-ghost btn-sm" id="rx-refresh">${t("common.refresh")}</button>
+          <h3 class="card-title">${t("radiology.history")}</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="rx-history-refresh">${t("common.refresh")}</button>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>${t("radiology.col.file")}</th>
-                <th>${t("radiology.col.size")}</th>
-                <th>${t("radiology.col.date")}</th>
-                <th>${t("radiology.col.user")}</th>
-              </tr>
-            </thead>
-            <tbody id="rx-tbody"><tr><td colspan="4" class="empty">${t("common.loading")}</td></tr></tbody>
-          </table>
-        </div>
+        <div id="rx-history-wrap"><div class="empty"><div class="spinner"></div></div></div>
       </div>
+
     `);
 
-    const fileEl = $("#rx-files");
+    const zone = $("#rx-upload");
+    const fileInput = $("#rx-file-input");
+    const previewWrap = $("#rx-preview-wrap");
+    const previewImg = $("#rx-preview-img");
+    const previewName = $("#rx-preview-name");
+    const analyzeBtn = $("#rx-analyze-btn");
+    let selectedFile = null;
 
-    function setMode(mode) {
-      fileEl.value = "";
-      $$(".rx-mode-pill").forEach((b) => {
-        const active = b.dataset.rxMode === mode;
-        b.classList.toggle("btn-primary", active);
-        b.classList.toggle("btn-secondary", !active);
-      });
-      if (mode === "single") fileEl.removeAttribute("multiple");
-      else fileEl.setAttribute("multiple", "");
-      if (mode === "folder") fileEl.setAttribute("webkitdirectory", "");
-      else fileEl.removeAttribute("webkitdirectory");
-      syncSelection();
+    function loadFilePreview(file) {
+      selectedFile = file;
+      previewImg.src = URL.createObjectURL(file);
+      previewImg.alt = file.name;
+      previewName.textContent = file.name;
+      previewWrap.classList.remove("hidden");
+      analyzeBtn.disabled = false;
     }
 
-    function syncSelection() {
-      const n = fileEl.files ? fileEl.files.length : 0;
-      $("#rx-selection").textContent = n ? t("radiology.selected", { n }) : t("radiology.none");
-    }
+    zone.addEventListener("click", () => fileInput.click());
+    zone.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") fileInput.click();
+    });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files[0]) loadFilePreview(fileInput.files[0]);
+    });
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("drag-over");
+      const f = e.dataTransfer.files[0];
+      if (f) loadFilePreview(f);
+    });
 
-    $$(".rx-mode-pill").forEach((b) =>
-      b.addEventListener("click", () => setMode(b.dataset.rxMode)));
-
-    $("#rx-browse").addEventListener("click", () => fileEl.click());
-    fileEl.addEventListener("change", syncSelection);
-
-    $$("input[name=rx-category]").forEach((r) =>
-      r.addEventListener("change", () => loadRx()));
-
-    $("#rx-refresh").addEventListener("click", () => loadRx());
-
-    async function loadRx() {
-      const catSel = $("input[name=rx-category]:checked");
-      const cat = (catSel && catSel.value) ? catSel.value : "general";
-      const body = $("#rx-tbody");
-      body.innerHTML = `<tr><td colspan="4" class="empty"><div class="spinner"></div></td></tr>`;
+    analyzeBtn.addEventListener("click", async () => {
+      if (!selectedFile) return;
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = t("radiology.analyzing");
+      $("#rx-empty").classList.add("hidden");
+      $("#rx-result").classList.remove("hidden");
+      $("#rx-result").innerHTML = `<div style="display:flex;justify-content:center;padding:20px;"><div class="spinner"></div></div>`;
       try {
-        const r = await api(`/radiology/list?category=${encodeURIComponent(cat)}&limit=80`);
-        const rows = r.items || [];
-        if (!rows.length) {
-          body.innerHTML = `<tr><td colspan="4" class="empty">${t("common.empty")}</td></tr>`;
-          return;
-        }
-        body.innerHTML = rows.map((it) => `
-          <tr>
-            <td><strong>${escapeHtml(it.filename || "")}</strong></td>
-            <td>${escapeHtml(rxFmtBytes(it.length))}</td>
-            <td>${escapeHtml((it.upload_date || "").replace("T", " ").slice(0, 19))}</td>
-            <td>${escapeHtml(it.uploaded_by || "")}</td>
-          </tr>`).join("");
-      } catch (e) {
-        body.innerHTML = `<tr><td colspan="4" class="alert alert-danger">${escapeHtml(e.message)}</td></tr>`;
-      }
-    }
-
-    $("#rx-upload").addEventListener("click", async () => {
-      $("#rx-msg").textContent = "";
-      const n = fileEl.files ? fileEl.files.length : 0;
-      if (!n) {
-        toast(t("radiology.needFiles"), "warning");
-        return;
-      }
-      const catSel = $("input[name=rx-category]:checked");
-      const cat = (catSel && catSel.value) ? catSel.value : "general";
-      const fd = new FormData();
-      fd.append("category", cat);
-      fd.append("notes", $("#rx-notes").value.trim());
-      fd.append("folder_hint", $("#rx-folder-hint").value.trim());
-      for (let i = 0; i < fileEl.files.length; i += 1) {
-        fd.append("files", fileEl.files[i]);
-      }
-      const btn = $("#rx-upload");
-      btn.disabled = true;
-      try {
-        const data = await api("/radiology/upload", { method: "POST", body: fd });
-        const ok = data.uploaded || 0;
-        const fail = data.skipped || 0;
-        if (fail) toast(t("radiology.partial", { ok, fail }), "warning");
-        else toast(t("radiology.success", { n: ok }), "success");
-        fileEl.value = "";
-        syncSelection();
-        await loadRx();
+        const fd = new FormData();
+        fd.append("image", selectedFile);
+        const pid = $("#rx-patient-id").value.trim();
+        if (pid) fd.append("patient_id", pid);
+        const res = await api("/cnn/predict", { method: "POST", body: fd });
+        renderRxPredictionResult(res);
+        toast(t("radiology.done"), "success");
+        loadRxHistory();
       } catch (err) {
-        const fallback = err.status === 503 ? t("radiology.error.mongo") : (err.message || t("common.error"));
-        toast(fallback, "error");
+        $("#rx-result").innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message || t("common.error"))}</div>`;
       } finally {
-        btn.disabled = false;
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = t("radiology.analyze");
       }
     });
 
-    setMode("single");
-    await loadRx();
+    $("#rx-refresh").addEventListener("click", () => loadRxCnnModelInfo());
+    $("#rx-history-refresh").addEventListener("click", () => loadRxHistory());
+
+    const u = getUser() || {};
+    if (u.role === "admin") {
+      $("#rx-admin-train").classList.remove("hidden");
+      $("#rx-train-btn").addEventListener("click", startCnnTraining);
+    }
+
+    await loadRxCnnModelInfo();
+    await loadRxHistory();
   }
 
   // ═══════════════════════ DATASET ═══════════════════════
@@ -1839,12 +1824,6 @@
         <div class="kpi-card"><div class="kpi-label">${t("model.trainedAt")}</div><div class="kpi-value" id="m-trained" style="font-size:14px;">—</div></div>
       </div>
 
-      <div class="card mb-16">
-        <div class="card-header"><h3 class="card-title">${t("model.methodology")}</h3></div>
-        <p class="text-sm text-muted" style="margin:0;">${t("model.methodology.body")}</p>
-        <div class="mt-12 text-xs text-muted"><strong>${t("model.features")}:</strong> <span id="m-feats">—</span></div>
-      </div>
-
       ${u.role === "admin" ? `
       <div class="card">
         <div class="card-header"><h3 class="card-title">${t("model.trainBtn")}</h3></div>
@@ -1878,7 +1857,6 @@
       $("#m-risk-cv").textContent = "CV 3-fold: " + fmt(info.risk_cv_accuracy_mean);
       $("#m-n").textContent = (info.n_samples ?? 0).toLocaleString();
       $("#m-trained").textContent = (info.trained_at || "—").replace("T", " ").slice(0, 16);
-      $("#m-feats").textContent = (info.features_used || []).join(", ") || "—";
     } catch (_) {}
   }
 
@@ -2123,6 +2101,12 @@
       openMenu("settings-menu");
     });
 
+    // ── In-app shortcuts (data-go-section) ───────────────────────────────
+    document.addEventListener("click", (e) => {
+      const go = e.target.closest("[data-go-section]");
+      if (go) navigate(go.dataset.goSection);
+    });
+
     // Auth bootstrap
     if (localStorage.getItem(LS_TOKEN)) {
       api("/health").then(showApp).catch(() => {
@@ -2130,5 +2114,237 @@
         $("#login-page").classList.remove("hidden");
       });
     }
-  });
+  });   // end DOMContentLoaded
+
+  function renderRxPredictionResult(res) {
+    const CLASS_BADGE = { normal: "active", pneumonia: "warning", covid: "danger" };
+    const cls = res.class || "normal";
+    const badgeCls = CLASS_BADGE[cls] || "info";
+    const probs = res.probabilities || {};
+    const probHtml = Object.entries(probs).map(([k, v]) => {
+      const pct = Math.round(v * 100);
+      return `
+        <div class="prob-row">
+          <div class="prob-name">${escapeHtml(rxClassLabel(k))}</div>
+          <div class="prob-track"><div class="prob-fill" style="width:${pct}%"></div></div>
+          <div class="prob-pct">${pct}%</div>
+        </div>`;
+    }).join("");
+    const alertHtml = (res.clinical_alert && res.alert_message)
+      ? `<div class="alert alert-danger mt-12"><span class="material-symbols-outlined" style="vertical-align:middle;margin-right:6px;">warning</span>${escapeHtml(res.alert_message)}</div>`
+      : "";
+    const critical = cls === "covid" ? " result-critical" : "";
+    $("#rx-result").innerHTML = `
+      <div class="result-card${critical}">
+        <div class="result-title">${t("diagnosis.result.diagnosis")}</div>
+        <div class="result-main">
+          <span class="badge badge-${badgeCls}">${escapeHtml(res.label || rxClassLabel(cls))}</span>
+        </div>
+        <div class="result-conf">${t("common.confidence")}: <strong>${res.confidence_pct ?? 0}%</strong></div>
+      </div>
+      ${alertHtml}
+      <div class="result-card">
+        <div class="result-title">${t("diagnosis.result.top")}</div>
+        ${probHtml || '<div class="text-sm text-muted">—</div>'}
+      </div>`;
+  }
+
+
+  async function loadRxCnnModelInfo() {
+    const statusEl = document.getElementById("rx-model-status");
+    const kpiModel = document.getElementById("rx-kpi-model");
+    const kpiAcc   = document.getElementById("rx-kpi-acc");
+    const cmEl     = document.getElementById("rx-confusion-matrix");
+    const clinEl   = document.getElementById("rx-clinical-analysis");
+    const clinNotes = document.getElementById("rx-clinical-notes");
+    if (!statusEl) return;
+    try {
+      const info = await api("/cnn/model-info");
+      const classes = info.classes || ["normal", "pneumonia", "covid"];
+      const classLabels = { normal: rxClassLabel("normal"), pneumonia: rxClassLabel("pneumonia"), covid: rxClassLabel("covid") };
+
+      if (info.loaded) {
+        kpiModel.textContent = t("radiology.model.ready");
+        kpiModel.style.color = "var(--c-accent-success)";
+        statusEl.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <span class="status-dot dot-success"></span>
+            <strong>${t("radiology.model.ready")}</strong>
+          </div>
+          <div class="text-xs text-muted" style="margin-top:4px;">
+            ${t("radiology.model.arch")}
+          </div>`;
+      } else {
+        kpiModel.textContent = t("radiology.model.notLoaded");
+        kpiModel.style.color = "var(--c-accent-warning)";
+        statusEl.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <span class="status-dot dot-warning"></span>
+            <span>${escapeHtml(info.error || t("radiology.model.notLoaded"))}</span>
+          </div>`;
+      }
+
+      // Metrics
+      const m = info.metrics || info.mongo_metrics;
+      if (m) {
+        const acc = m.evaluation?.accuracy;
+        if (acc !== undefined) kpiAcc.textContent = `${Math.round(acc * 100)}%`;
+
+        // Confusion matrix
+        const cm = m.evaluation?.confusion_matrix;
+        if (cm && classes.length > 0) {
+          let tableHtml = `<div class="table-wrap"><table><thead><tr><th></th>${classes.map(c => `<th>${classLabels[c] || c}</th>`).join("")}</tr></thead><tbody>`;
+          cm.forEach((row, i) => {
+            tableHtml += `<tr><th>${classLabels[classes[i]] || classes[i]}</th>`;
+            row.forEach((val, j) => {
+              const diag = i === j;
+              const danger = !diag && val > 0;
+              tableHtml += `<td class="${diag ? "rx-cm-diag" : danger ? "rx-cm-err" : ""}">${val}</td>`;
+            });
+            tableHtml += `</tr>`;
+          });
+          tableHtml += `</tbody></table></div>`;
+          cmEl.innerHTML = tableHtml;
+
+          // Clinical notes
+          const clin = m.clinical_analysis || {};
+          const notes = [];
+          if (clin.covid_missed_as_normal > 0)
+            notes.push({ icon: "emergency", cls: "danger", text: `<strong>${clin.covid_missed_as_normal} caso(s) de COVID-19</strong> clasificados como <em>Sana</em>. Riesgo crítico: falso negativo en enfermedad contagiosa → el paciente podría quedar sin aislamiento.` });
+          if (clin.covid_missed_as_pneumonia > 0)
+            notes.push({ icon: "warning", cls: "warning", text: `<strong>${clin.covid_missed_as_pneumonia} caso(s) de COVID-19</strong> clasificados como <em>Neumonía</em>. Se recibirá tratamiento, pero no protocolo de aislamiento COVID.` });
+          if (clin.pneumonia_missed_as_normal > 0)
+            notes.push({ icon: "warning", cls: "warning", text: `<strong>${clin.pneumonia_missed_as_normal} caso(s) de Neumonía</strong> clasificados como <em>Sana</em>. Falso negativo → riesgo de sepsis sin tratamiento antibiótico.` });
+          if (clin.normal_missed_as_covid > 0)
+            notes.push({ icon: "info", cls: "info", text: `<strong>${clin.normal_missed_as_covid} caso(s) Sanos</strong> clasificados como <em>COVID-19</em>. Falso positivo → pruebas confirmatorias innecesarias, pero menor riesgo clínico.` });
+          if (clin.critical_note)
+            notes.push({ icon: "psychology", cls: "info", text: escapeHtml(clin.critical_note) });
+
+          if (notes.length > 0) {
+            clinNotes.innerHTML = notes.map(n =>
+              `<div class="alert alert-${n.cls === "danger" ? "danger" : n.cls === "warning" ? "warning" : "info"}">
+                <span class="material-symbols-outlined">${n.icon}</span>
+                <span>${n.text}</span>
+              </div>`
+            ).join("");
+            clinEl.classList.remove("hidden");
+          }
+        }
+      }
+
+      // MongoDB status
+      if (info.mongodb) {
+        const dbConn = info.mongodb;
+        const existingStatus = document.getElementById("rx-mongo-status");
+        if (!existingStatus) {
+          const block = document.getElementById("rx-model-block");
+          if (block) {
+            const dbDiv = document.createElement("div");
+            dbDiv.id = "rx-mongo-status";
+            dbDiv.className = "rx-status-row text-xs";
+            dbDiv.style.marginTop = "8px";
+            dbDiv.innerHTML = dbConn.connected
+              ? `<span class="status-dot dot-success"></span> MongoDB conectado — <em>${escapeHtml(dbConn.database)}</em>`
+              : `<span class="status-dot dot-warning"></span> MongoDB no disponible — predicciones no persistidas`;
+            block.appendChild(dbDiv);
+          }
+        }
+      }
+    } catch (err) {
+      if (statusEl) statusEl.innerHTML = `<p class="text-muted text-xs">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function loadRxHistory() {
+    const wrap = document.getElementById("rx-history-wrap");
+    const kpiTotal  = document.getElementById("rx-kpi-total");
+    const kpiAlerts = document.getElementById("rx-kpi-alerts");
+    if (!wrap) return;
+    try {
+      const [histData, statsData] = await Promise.all([
+        api("/cnn/history?limit=20"),
+        api("/cnn/stats"),
+      ]);
+
+      if (statsData.available) {
+        kpiTotal.textContent  = statsData.total ?? "—";
+        kpiAlerts.textContent = statsData.alerts ?? "—";
+      }
+
+      const preds = histData.predictions || [];
+      if (preds.length === 0) {
+        wrap.innerHTML = `<p class="text-sm text-muted">${t("radiology.history.empty")}</p>`;
+        return;
+      }
+
+      const CLASS_LABELS = { normal: "Sana", pneumonia: "Neumonía", covid: "COVID-19" };
+      const CLASS_BADGE  = { normal: "active", pneumonia: "warning", covid: "danger" };
+
+      wrap.innerHTML = `
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Archivo</th><th>Clase</th><th>Confianza</th><th>Alerta</th><th>Fecha</th>
+          </tr></thead>
+          <tbody>
+            ${preds.map(p => {
+              const dt = p.timestamp ? new Date(p.timestamp).toLocaleString("es-ES") : "—";
+              const cls = p.predicted_class || "—";
+              const badge = CLASS_BADGE[cls] || "info";
+              const label = CLASS_LABELS[cls] || cls;
+              const pct = p.confidence != null ? Math.round(p.confidence * 100) + "%" : "—";
+              return `<tr>
+                <td class="text-xs">${escapeHtml(p.filename || "—")}</td>
+                <td><span class="badge badge-${badge}">${escapeHtml(label)}</span></td>
+                <td>${pct}</td>
+                <td>${p.clinical_alert ? '<span class="material-symbols-outlined text-danger" style="font-size:18px;">warning</span>' : "—"}</td>
+                <td class="text-xs text-muted">${dt}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table></div>`;
+    } catch (err) {
+      if (wrap) wrap.innerHTML = `<p class="text-sm text-muted">${t("radiology.history.unavailable")}</p>`;
+    }
+  }
+
+  async function startCnnTraining() {
+    const btn = document.getElementById("rx-train-btn");
+    const statusEl = document.getElementById("rx-train-status");
+    btn.disabled = true;
+    statusEl.textContent = "Iniciando entrenamiento CNN…";
+    try {
+      await api("/cnn/train", { method: "POST" });
+      toast("Entrenamiento CNN iniciado en segundo plano. Puede tardar varios minutos.", "info");
+      statusEl.textContent = "En proceso… recarga la página en unos minutos.";
+      pollCnnTraining(statusEl, btn);
+    } catch (err) {
+      toast(err.message || "Error al iniciar entrenamiento.", "error");
+      btn.disabled = false;
+      statusEl.textContent = "";
+    }
+  }
+
+  function pollCnnTraining(statusEl, btn) {
+    const interval = setInterval(async () => {
+      try {
+        const s = await api("/cnn/train-status");
+        if (!s.running) {
+          clearInterval(interval);
+          btn.disabled = false;
+          if (s.last_result === "ok") {
+            statusEl.textContent = "Entrenamiento completado.";
+            toast("Modelo CNN entrenado correctamente.", "success");
+            loadRxCnnModelInfo();
+            loadRxHistory();
+          } else {
+            statusEl.textContent = "Error: " + (s.last_error || "desconocido");
+            toast("Error en entrenamiento CNN.", "error");
+          }
+        } else {
+          statusEl.textContent = "Entrenando… (sigue en proceso)";
+        }
+      } catch (_) { /* silencio */ }
+    }, 15000);
+  }
+
 })();

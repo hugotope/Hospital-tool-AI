@@ -8,3 +8,6 @@ pandas
 numpy
 scipy
 joblib
+# CNN / Deep Learning
+tensorflow
+pillow

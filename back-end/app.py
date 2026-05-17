@@ -48,6 +48,8 @@ import database as db
 import mongo_radiology as radiology_store
 import pipeline
 from ai_predictor import predictor
+from cnn_predictor import cnn_predictor
+from mongodb_client import mongo
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App setup
@@ -86,6 +88,7 @@ _training_status: dict = {
 db.init_db()
 db.ensure_default_doctors()
 predictor.load()
+cnn_predictor.load()   # intenta cargar el modelo CNN (no falla si no existe)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1843,6 +1846,134 @@ def update_doctor(doctor_id: int):
         return jsonify({"message": "Doctor actualizado."}), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CNN — Clasificación de radiografías de tórax
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CNN_ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+CNN_TRAIN_SCRIPT = ROOT_DIR / "models-ia" / "train_cnn.py"
+_cnn_training_status: dict = {"running": False, "last_result": None, "last_error": None}
+
+
+def _run_cnn_training() -> None:
+    global _cnn_training_status
+    _cnn_training_status.update({"running": True, "last_result": None, "last_error": None})
+    try:
+        result = subprocess.run(
+            [sys.executable, str(CNN_TRAIN_SCRIPT), "--epochs", "20"],
+            capture_output=True, text=True, timeout=7200,
+        )
+        if result.returncode == 0:
+            cnn_predictor.reload()
+            _cnn_training_status["last_result"] = "ok"
+        else:
+            err = (result.stderr or result.stdout or "Error desconocido").strip()
+            _cnn_training_status["last_error"] = err[-4000:]
+    except subprocess.TimeoutExpired:
+        _cnn_training_status["last_error"] = "Timeout: entrenamiento CNN superó 2 horas."
+    except Exception as exc:
+        _cnn_training_status["last_error"] = str(exc)
+    finally:
+        _cnn_training_status["running"] = False
+
+
+@app.post("/api/cnn/predict")
+@require_auth
+def cnn_predict():
+    """
+    Clasifica una radiografía de tórax.
+    Body: multipart/form-data con campo 'image' (archivo de imagen).
+    Opcional: campo 'patient_id' (string).
+    """
+    if "image" not in request.files:
+        return jsonify({"error": "Se requiere un archivo en el campo 'image'."}), 400
+
+    file = request.files["image"]
+    if not file.filename:
+        return jsonify({"error": "Nombre de archivo vacío."}), 400
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in _CNN_ALLOWED_EXTENSIONS:
+        return jsonify({"error": f"Formato no permitido. Usa: {', '.join(_CNN_ALLOWED_EXTENSIONS)}"}), 415
+
+    if not cnn_predictor.loaded:
+        return jsonify({
+            "error": "Modelo CNN no disponible.",
+            "detail": cnn_predictor.error,
+            "hint": "Entrena el modelo primero en la sección Radiografías.",
+        }), 503
+
+    try:
+        image_bytes = file.read()
+        patient_id = request.form.get("patient_id", "").strip() or None
+        user = request.session.get("username", "")
+
+        result = cnn_predictor.predict(image_bytes, filename=file.filename)
+
+        # Persistir en MongoDB
+        mongo_id = mongo.save_xray_prediction(result, patient_id=patient_id, user=user)
+        result["mongo_id"] = mongo_id
+
+        return jsonify(result), 200
+    except Exception as exc:
+        return jsonify({"error": f"Error en clasificación: {exc}"}), 500
+
+
+@app.get("/api/cnn/model-info")
+@require_auth
+def cnn_model_info():
+    """Devuelve info del modelo CNN y métricas de entrenamiento."""
+    info = cnn_predictor.get_model_info()
+    # Complementar con métricas en MongoDB si están disponibles
+    if mongo.is_connected():
+        mongo_metrics = mongo.get_latest_cnn_metrics()
+        if mongo_metrics:
+            info["mongo_metrics"] = mongo_metrics
+    info["mongodb"] = mongo.connection_info()
+    return jsonify(info), 200
+
+
+@app.get("/api/cnn/history")
+@require_auth
+def cnn_history():
+    """Historial de predicciones CNN almacenadas en MongoDB."""
+    limit = request.args.get("limit", default=50, type=int)
+    limit = max(1, min(limit, 200))
+    class_filter = request.args.get("class", "").strip() or None
+    predictions = mongo.get_xray_predictions(limit=limit, class_filter=class_filter)
+    return jsonify({"count": len(predictions), "predictions": predictions}), 200
+
+
+@app.get("/api/cnn/stats")
+@require_auth
+def cnn_stats():
+    """Estadísticas agregadas de predicciones CNN desde MongoDB."""
+    return jsonify(mongo.get_xray_stats()), 200
+
+
+@app.post("/api/cnn/train")
+@require_admin
+def cnn_train():
+    """Lanza el entrenamiento del modelo CNN en segundo plano (admin only)."""
+    if _cnn_training_status["running"]:
+        return jsonify({"status": "already_running", "message": "Entrenamiento CNN ya en curso."}), 409
+    if not CNN_TRAIN_SCRIPT.exists():
+        return jsonify({"error": f"Script no encontrado: {CNN_TRAIN_SCRIPT}"}), 404
+    threading.Thread(target=_run_cnn_training, daemon=True).start()
+    return jsonify({"status": "started", "message": "Entrenamiento CNN iniciado en segundo plano."}), 202
+
+
+@app.get("/api/cnn/train-status")
+@require_auth
+def cnn_train_status():
+    return jsonify({
+        "running":      _cnn_training_status["running"],
+        "last_result":  _cnn_training_status["last_result"],
+        "last_error":   _cnn_training_status["last_error"],
+        "model_loaded": cnn_predictor.loaded,
+    }), 200
 
 
 # ─────────────────────────────────────────────────────────────────────────────

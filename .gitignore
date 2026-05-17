@@ -12,6 +12,13 @@ htmlcov/
 
 back-end/hospital.db
 uploaded_datasets/
+datasets/
+models-ia/models/
+
+# Scripts locales de desarrollo (no subir)
+scripts/patch_*.py
+scripts/fix_*.py
+scripts/render_*.txt
 
 *.log
 .env
