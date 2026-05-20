@@ -2310,41 +2310,70 @@
   async function startCnnTraining() {
     const btn = document.getElementById("rx-train-btn");
     const statusEl = document.getElementById("rx-train-status");
+    if (!btn || !statusEl) return;
     btn.disabled = true;
-    statusEl.textContent = "Iniciando entrenamiento CNN…";
+    statusEl.textContent = t("radiology.train.starting") || "Iniciando entrenamiento CNN…";
     try {
-      await api("/cnn/train", { method: "POST" });
-      toast("Entrenamiento CNN iniciado en segundo plano. Puede tardar varios minutos.", "info");
-      statusEl.textContent = "En proceso… recarga la página en unos minutos.";
+      const res = await api("/cnn/train", { method: "POST", body: { epochs: 12 } });
+      const msg = res.message || "Entrenamiento CNN iniciado.";
+      toast(msg + " Puede tardar varios minutos.", "info");
+      statusEl.textContent = t("radiology.train.running") || "En proceso…";
       pollCnnTraining(statusEl, btn);
     } catch (err) {
-      toast(err.message || "Error al iniciar entrenamiento.", "error");
+      if (err.status === 409) {
+        toast(err.data?.message || err.message || "Entrenamiento ya en curso.", "warning");
+        statusEl.textContent = t("radiology.train.running") || "En proceso…";
+        pollCnnTraining(statusEl, btn);
+        return;
+      }
+      if (err.status === 403) {
+        toast(t("radiology.train.adminOnly") || "Se requiere rol administrador.", "error");
+      } else if (err.status === 404) {
+        toast(t("radiology.train.noScript") || "Script de entrenamiento no encontrado en el servidor.", "error");
+      } else {
+        toast(err.message || t("common.error"), "error");
+      }
       btn.disabled = false;
       statusEl.textContent = "";
     }
   }
 
   function pollCnnTraining(statusEl, btn) {
+    let polls = 0;
+    const maxPolls = 1440;
     const interval = setInterval(async () => {
+      polls += 1;
+      if (polls > maxPolls) {
+        clearInterval(interval);
+        btn.disabled = false;
+        statusEl.textContent = t("radiology.train.timeout") || "Tiempo de espera agotado; revisa logs del backend.";
+        return;
+      }
       try {
         const s = await api("/cnn/train-status");
-        if (!s.running) {
-          clearInterval(interval);
-          btn.disabled = false;
-          if (s.last_result === "ok") {
-            statusEl.textContent = "Entrenamiento completado.";
-            toast("Modelo CNN entrenado correctamente.", "success");
-            loadRxCnnModelInfo();
-            loadRxHistory();
-          } else {
-            statusEl.textContent = "Error: " + (s.last_error || "desconocido");
-            toast("Error en entrenamiento CNN.", "error");
-          }
-        } else {
-          statusEl.textContent = "Entrenando… (sigue en proceso)";
+        if (s.running) {
+          const ep = s.epochs ? ` (${s.epochs} épocas)` : "";
+          statusEl.textContent = (t("radiology.train.running") || "Entrenando…") + ep;
+          return;
         }
-      } catch (_) { /* silencio */ }
-    }, 15000);
+        clearInterval(interval);
+        btn.disabled = false;
+        if (s.last_result === "ok") {
+          statusEl.textContent = t("radiology.train.done") || "Entrenamiento completado.";
+          toast(t("radiology.train.success") || "Modelo CNN entrenado correctamente.", "success");
+          loadRxCnnModelInfo();
+          loadRxHistory();
+        } else {
+          const errTxt = (s.last_error || "desconocido").slice(0, 400);
+          statusEl.textContent = (t("radiology.train.failed") || "Error:") + " " + errTxt;
+          toast(
+            (t("radiology.train.failedToast") || "Error en entrenamiento CNN.") +
+              (errTxt.includes("datasets") ? " ¿Tienes la carpeta datasets/ montada?" : ""),
+            "error"
+          );
+        }
+      } catch (_) { /* reintento en siguiente tick */ }
+    }, 5000);
   }
 
 })();

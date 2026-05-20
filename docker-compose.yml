@@ -66,10 +66,13 @@ services:
       HOSPITAL_HOST: 0.0.0.0
       HOSPITAL_PORT: 8000
       HOSPITAL_DEBUG: "0"
+      HOSPITAL_LOG_DIR: /app/logs
       HOSPITAL_CORS_ORIGINS: http://localhost,http://127.0.0.1,http://localhost:8888,http://127.0.0.1:8888
     volumes:
       - hospital_uploads:/app/uploaded_datasets
       - ./models-ia/models:/app/models-ia/models
+      - hospital_logs:/app/logs
+      - ./datasets:/app/datasets:ro
     ports:
       - "8000:8000"
     expose:
@@ -104,3 +107,4 @@ volumes:
   hospital_pg_data:
   hospital_mongo_data:
   hospital_uploads:
+  hospital_logs:

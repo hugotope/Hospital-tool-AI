@@ -44,6 +44,10 @@ from flask import Flask, Response, jsonify, render_template_string, request
 from flask_cors import CORS
 from pymongo.errors import PyMongoError
 
+from logging_config import get_logger, setup_logging
+
+setup_logging()
+
 import database as db
 import mongo_radiology as radiology_store
 import pipeline
@@ -89,6 +93,10 @@ db.init_db()
 db.ensure_default_doctors()
 predictor.load()
 cnn_predictor.load()   # intenta cargar el modelo CNN (no falla si no existe)
+
+log_health = get_logger("health")
+log_training = get_logger("training")
+log_notifications = get_logger("notifications")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -386,15 +394,18 @@ def _run_training(dataset_path: Path) -> None:
         f"Reentrenando con {dataset_path.name}.",
         source="training",
     )
+    log_training.info("Entrenamiento tabular iniciado | dataset=%s", dataset_path.name)
     try:
         result = subprocess.run(
             [sys.executable, str(TRAIN_SCRIPT), "--dataset", str(dataset_path)],
             capture_output=True, text=True, timeout=900,
+            cwd=str(ROOT_DIR),
         )
         if result.returncode == 0:
             predictor.reload()
             _training_status["last_result"] = "ok"
             _invalidate_diseases_cache()
+            log_training.info("Entrenamiento tabular completado | dataset=%s", dataset_path.name)
             _notify(
                 "success",
                 "Entrenamiento completado",
@@ -404,9 +415,15 @@ def _run_training(dataset_path: Path) -> None:
         else:
             error_output = (result.stderr or "").strip()
             if not error_output:
-                # Algunas fallas de Spark/Python salen por stdout.
                 error_output = (result.stdout or "").strip()
             _training_status["last_error"] = (error_output or "Error desconocido")[-4000:]
+            log_training.error(
+                "Entrenamiento tabular fallido | code=%s | dataset=%s",
+                result.returncode,
+                dataset_path.name,
+            )
+            for line in _training_status["last_error"].splitlines()[-15:]:
+                log_training.error("[train] %s", line)
             _notify(
                 "error",
                 "Fallo en el entrenamiento",
@@ -416,12 +433,14 @@ def _run_training(dataset_path: Path) -> None:
             )
     except subprocess.TimeoutExpired:
         _training_status["last_error"] = "Timeout: el entrenamiento superó 15 minutos."
+        log_training.error("Entrenamiento tabular timeout | dataset=%s", dataset_path.name)
         _notify("error", "Entrenamiento detenido por timeout",
                 "El entrenamiento superó 15 minutos y fue cancelado.",
                 source="training",
                 meta={"dataset": dataset_path.name})
     except Exception as exc:
         _training_status["last_error"] = str(exc)
+        log_training.exception("Excepcion en entrenamiento tabular")
         _notify("error", "Excepcion durante el entrenamiento",
                 str(exc), source="training",
                 meta={"dataset": dataset_path.name})
@@ -590,13 +609,23 @@ def _invalidate_diseases_cache(dataset_path: Path | None = None) -> None:
 
 def _notify(level: str, title: str, message: str = "", source: str = "system",
             meta: dict | None = None) -> None:
-    """Inserta una notificacion sin romper el flujo si la BD falla."""
+    """Registra evento, inserta notificacion en PostgreSQL y expone via /api/notifications."""
+    level_norm = (level or "info").strip().lower()
+    log_map = {
+        "info": log_notifications.info,
+        "success": log_notifications.info,
+        "warning": log_notifications.warning,
+        "error": log_notifications.error,
+    }
+    log_fn = log_map.get(level_norm, log_notifications.info)
+    log_fn("[%s] %s — %s", source, title, message or "(sin detalle)")
+
     try:
         meta_str = json.dumps(meta, ensure_ascii=False) if meta else ""
         db.add_notification(title=title, message=message, level=level,
                             source=source, meta=meta_str)
-    except Exception:
-        pass
+    except Exception as exc:
+        log_notifications.error("No se pudo persistir notificacion: %s", exc)
 
 
 def _detect_new_diagnoses(dataset_path: Path) -> list[str]:
@@ -642,7 +671,48 @@ def _parse_symptoms(raw_value) -> list[str]:
 
 @app.get("/api/health")
 def health():
-    return jsonify({"status": "ok", "models_loaded": predictor.loaded}), 200
+    """Estado operativo para Docker healthcheck y monitorizacion."""
+    payload: dict = {
+        "status": "ok",
+        "models_loaded": predictor.loaded,
+        "cnn_loaded": cnn_predictor.loaded,
+        "postgres": "ok",
+        "mongodb": "ok",
+    }
+    issues: list[str] = []
+
+    if not predictor.loaded:
+        issues.append("modelos tabulares no cargados")
+        log_health.warning(
+            "Modelos tabulares no disponibles: %s",
+            predictor.error or "sin detalle",
+        )
+
+    if not cnn_predictor.loaded:
+        log_health.warning(
+            "Modelo CNN no cargado (opcional): %s",
+            cnn_predictor.error or "no entrenado",
+        )
+
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+    except Exception as exc:
+        payload["postgres"] = "error"
+        issues.append(f"postgresql: {exc}")
+        log_health.warning("PostgreSQL no disponible: %s", exc)
+
+    if not mongo.is_connected():
+        payload["mongodb"] = "degraded"
+        issues.append("mongodb no conectado")
+        log_health.warning("MongoDB no disponible para radiologia/CNN historial")
+
+    if issues:
+        payload["status"] = "degraded"
+        payload["issues"] = issues
+
+    return jsonify(payload), 200
 
 
 @app.post("/api/auth/login")
@@ -1489,6 +1559,22 @@ def analytics_anomalies():
                 })
         except Exception:
             continue
+    if anomalies:
+        log_health.warning(
+            "IsolationForest: %s anomalias en %s pacientes revisados",
+            len(anomalies),
+            len(patients),
+        )
+        _notify(
+            "warning",
+            "Anomalias detectadas",
+            f"{len(anomalies)} paciente(s) con perfil clinico atipico.",
+            source="analytics",
+            meta={"checked": len(patients), "anomalies_count": len(anomalies)},
+        )
+    else:
+        log_health.info("Anomalias: 0 de %s pacientes", len(patients))
+
     return jsonify({
         "checked": len(patients),
         "anomalies_count": len(anomalies),
@@ -1511,19 +1597,35 @@ def dataset_pipeline():
         return jsonify({"error": str(exc)}), 400
     try:
         report = pipeline.run_pipeline(dataset_path, translator=translate_symptoms)
-        if not report.get("ok"):
+        if report.get("ok"):
+            summary = report.get("summary", {})
+            _notify(
+                "info",
+                "Pipeline ETL completado",
+                (
+                    f"{dataset_path.name}: {summary.get('rows_raw', 0)} → "
+                    f"{summary.get('rows_final', 0)} filas en {summary.get('total_elapsed_ms', 0)} ms"
+                ),
+                source="pipeline",
+                meta={"dataset": dataset_path.name, "summary": summary},
+            )
+        else:
             failed_stages = [
                 s.get("stage") for s in report.get("stages", []) if not s.get("ok")
             ]
+            failed_stage = report.get("summary", {}).get("failed_stage") or (
+                failed_stages[0] if failed_stages else "desconocido"
+            )
             _notify(
                 "warning",
                 "Pipeline terminado con errores",
-                f"{dataset_path.name}: " + ", ".join(failed_stages or ["fallo desconocido"]),
+                f"{dataset_path.name}: etapa fallida «{failed_stage}»",
                 source="pipeline",
                 meta={"dataset": dataset_path.name, "failed": failed_stages},
             )
         return jsonify(report), 200
     except Exception as exc:
+        get_logger("pipeline").exception("Excepcion en POST /api/dataset/pipeline")
         _notify(
             "error",
             "Excepcion en el pipeline",
@@ -1857,24 +1959,69 @@ CNN_TRAIN_SCRIPT = ROOT_DIR / "models-ia" / "train_cnn.py"
 _cnn_training_status: dict = {"running": False, "last_result": None, "last_error": None}
 
 
-def _run_cnn_training() -> None:
+def _run_cnn_training(epochs: int = 12) -> None:
     global _cnn_training_status
-    _cnn_training_status.update({"running": True, "last_result": None, "last_error": None})
+    _cnn_training_status.update({
+        "running": True,
+        "last_result": None,
+        "last_error": None,
+        "epochs": epochs,
+    })
+    _notify(
+        "info",
+        "Entrenamiento CNN iniciado",
+        f"MobileNetV2 — {epochs} épocas (requiere datasets/ en el servidor).",
+        source="training",
+        meta={"epochs": epochs},
+    )
+    log_training.info("CNN training iniciado | epochs=%s | cwd=%s", epochs, ROOT_DIR)
+    cmd = [
+        sys.executable,
+        str(CNN_TRAIN_SCRIPT),
+        "--epochs",
+        str(epochs),
+        "--no-mongo",
+    ]
     try:
         result = subprocess.run(
-            [sys.executable, str(CNN_TRAIN_SCRIPT), "--epochs", "20"],
-            capture_output=True, text=True, timeout=7200,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=7200,
+            cwd=str(ROOT_DIR),
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
         if result.returncode == 0:
             cnn_predictor.reload()
             _cnn_training_status["last_result"] = "ok"
+            log_training.info("CNN training completado correctamente")
+            _notify(
+                "success",
+                "Entrenamiento CNN completado",
+                "Modelo radiografías actualizado y recargado.",
+                source="training",
+            )
         else:
             err = (result.stderr or result.stdout or "Error desconocido").strip()
             _cnn_training_status["last_error"] = err[-4000:]
+            log_training.error("CNN training fallido | returncode=%s", result.returncode)
+            for line in _cnn_training_status["last_error"].splitlines()[-20:]:
+                log_training.error("[cnn-train] %s", line)
+            _notify(
+                "error",
+                "Fallo entrenamiento CNN",
+                _cnn_training_status["last_error"][-500:],
+                source="training",
+                meta={"returncode": result.returncode},
+            )
     except subprocess.TimeoutExpired:
         _cnn_training_status["last_error"] = "Timeout: entrenamiento CNN superó 2 horas."
+        log_training.error("CNN training timeout")
+        _notify("error", "CNN timeout", _cnn_training_status["last_error"], source="training")
     except Exception as exc:
         _cnn_training_status["last_error"] = str(exc)
+        log_training.exception("Excepcion en entrenamiento CNN")
+        _notify("error", "Excepcion CNN", str(exc), source="training")
     finally:
         _cnn_training_status["running"] = False
 
@@ -1912,7 +2059,25 @@ def cnn_predict():
 
         result = cnn_predictor.predict(image_bytes, filename=file.filename)
 
-        # Persistir en MongoDB
+        if result.get("clinical_alert"):
+            log_notifications.warning(
+                "Alerta clinica CNN | %s | conf=%s%% | archivo=%s",
+                result.get("label"),
+                result.get("confidence_pct"),
+                file.filename,
+            )
+            _notify(
+                "warning",
+                "Alerta radiológica",
+                result.get("alert_message") or result.get("label", "Patología detectada"),
+                source="cnn",
+                meta={
+                    "class": result.get("class"),
+                    "confidence": result.get("confidence"),
+                    "filename": file.filename,
+                },
+            )
+
         mongo_id = mongo.save_xray_prediction(result, patient_id=patient_id, user=user)
         result["mongo_id"] = mongo_id
 
@@ -1960,9 +2125,21 @@ def cnn_train():
     if _cnn_training_status["running"]:
         return jsonify({"status": "already_running", "message": "Entrenamiento CNN ya en curso."}), 409
     if not CNN_TRAIN_SCRIPT.exists():
+        log_training.error("Script CNN no encontrado: %s", CNN_TRAIN_SCRIPT)
         return jsonify({"error": f"Script no encontrado: {CNN_TRAIN_SCRIPT}"}), 404
-    threading.Thread(target=_run_cnn_training, daemon=True).start()
-    return jsonify({"status": "started", "message": "Entrenamiento CNN iniciado en segundo plano."}), 202
+    data = request.get_json(silent=True) or {}
+    try:
+        epochs = int(data.get("epochs", 12))
+    except (TypeError, ValueError):
+        epochs = 12
+    epochs = max(2, min(epochs, 50))
+    threading.Thread(target=_run_cnn_training, args=(epochs,), daemon=True).start()
+    log_training.info("Hilo CNN training lanzado | epochs=%s", epochs)
+    return jsonify({
+        "status": "started",
+        "message": "Entrenamiento CNN iniciado en segundo plano.",
+        "epochs": epochs,
+    }), 202
 
 
 @app.get("/api/cnn/train-status")
@@ -1972,7 +2149,10 @@ def cnn_train_status():
         "running":      _cnn_training_status["running"],
         "last_result":  _cnn_training_status["last_result"],
         "last_error":   _cnn_training_status["last_error"],
+        "epochs":       _cnn_training_status.get("epochs"),
         "model_loaded": cnn_predictor.loaded,
+        "script_path":  str(CNN_TRAIN_SCRIPT),
+        "script_exists": CNN_TRAIN_SCRIPT.exists(),
     }), 200
 
 

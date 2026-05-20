@@ -20,6 +20,7 @@ scripts/patch_*.py
 scripts/fix_*.py
 scripts/render_*.txt
 
+logs/
 *.log
 .env
 .env.*

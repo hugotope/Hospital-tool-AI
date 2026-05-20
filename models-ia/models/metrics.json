@@ -42,7 +42,7 @@
     "Medium": 33920,
     "Low": 4132
   },
-  "trained_at": "2026-05-17T21:24:17",
+  "trained_at": "2026-05-18T15:07:41",
   "features_used": [
     "symptoms_tfidf",
     "age",

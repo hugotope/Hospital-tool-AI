@@ -78,6 +78,7 @@ Hospital-tool-AI/
 │   ├── app.py                # Flask app + todos los endpoints /api/*
 │   ├── database.py           # Esquema PostgreSQL y queries
 │   ├── pipeline.py           # ETL: ingesta -> limpieza -> transformacion -> EDA
+│   ├── logging_config.py     # Logging centralizado (stdout + hospital-ai.log)
 │   ├── ai_predictor.py       # Inferencia sklearn (enfermedad/riesgo/anomalia)
 │   ├── cnn_predictor.py      # Inferencia Keras (radiografias)
 │   ├── mongodb_client.py     # Cliente Mongo compartido
@@ -203,10 +204,13 @@ URLs:
 Comandos utiles:
 
 ```bash
-docker compose logs -f          # Logs en vivo
+docker compose logs -f backend  # Logs en vivo (stdout)
 docker compose down             # Para todo
 docker compose down -v          # Para y borra volumenes (datos)
 ```
+
+Logs persistentes: volumen Docker `hospital_logs` → `logs/hospital-ai.log`
+(fichero rotativo dentro del contenedor backend).
 
 **Atajo en Windows**: doble clic en `start_server.bat`. El script:
 
@@ -262,6 +266,8 @@ Todas son opcionales (tienen default).
 | `HOSPITAL_CORS_ORIGINS`      | `http://127.0.0.1:5500,http://localhost:5500,null`                 | Orígenes permitidos (lista separada por comas)             |
 | `HOSPITAL_MAX_UPLOAD_MB`     | `25`                                                               | Limite de subida de CSV en MB                              |
 | `HOSPITAL_MAX_RADIOLOGY_MB`  | `100` (Docker `120`)                                               | Limite de subida de imagenes en MB                         |
+| `HOSPITAL_LOG_DIR`           | `logs/` (en Docker `/app/logs`)                                    | Directorio de logs rotativos                               |
+| `HOSPITAL_LOG_LEVEL`         | `INFO`                                                             | Nivel de logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`)     |
 
 ---
 
@@ -431,7 +437,25 @@ que permite al frontend pintar el progreso etapa por etapa.
 | Analisis (EDA)   | `analyze`      | Distribucion diagnosticos, edades, sintomas top, edad media por diagnostico           |
 
 El orquestador `run_pipeline(path, translator)` corta tempranamente si una
-etapa falla y devuelve `{ok, stages, summary}` serializable a JSON.
+etapa falla (`ok: false`) y devuelve `{ok, stages, summary}` serializable a JSON.
+Cada etapa incluye `quality_checks` (columnas obligatorias, duplicados, nulos,
+edades fuera de rango, normalizacion de sintomas).
+
+Endpoint: `POST /api/dataset/pipeline` (auth).
+
+---
+
+## Logging, alertas y monitorizacion
+
+- **Logging centralizado**: `back-end/logging_config.py` — `setup_logging()` al
+  arrancar; loggers `hospital_ai.pipeline`, `.training`, `.notifications`, `.health`.
+- **Salida**: stdout (`docker logs hospital-ai-backend`) + `logs/hospital-ai.log`
+  (rotativo, volumen `hospital_logs`).
+- **Alertas**: `_notify()` en `app.py` registra por severidad, persiste en
+  PostgreSQL (`notifications`) y se muestran en el dashboard (`GET /api/notifications`).
+- **CNN**: alertas clinicas automaticas en COVID-19/neumonia con alta confianza.
+- **Anomalias**: IsolationForest via `GET /api/analytics/anomalies`.
+- **Healthchecks**: Postgres, Mongo y Flask en `docker-compose.yml` (`GET /api/health`).
 
 ---
 
